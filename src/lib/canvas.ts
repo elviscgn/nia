@@ -47,6 +47,12 @@ export type CanvasHistoryState = {
   undoDepth: number;
 };
 
+export type StyleIndexState = {
+  version: number;
+  fileCount: number;
+  ruleCount: number;
+};
+
 export const CANVAS_ORIGIN = "http://127.0.0.1:1421";
 
 export const canvasSampleUrl = () => invoke<string>("canvas_sample_url");
@@ -58,6 +64,7 @@ export const canvasReportSelection = (selection: CanvasSelection) =>
 export const canvasSelection = () => invoke<CanvasSelection | null>("canvas_selection");
 export const canvasClearSelection = () => invoke<void>("canvas_clear_selection");
 export const canvasHistoryState = () => invoke<CanvasHistoryState>("canvas_history_state");
+export const canvasStyleIndexState = () => invoke<StyleIndexState>("canvas_style_index_state");
 export const canvasUndoStyle = () => invoke<CanvasUndoResult>("canvas_undo_style");
 
 export const canvasCdpEvaluate = (expression: string) =>
