@@ -3,9 +3,11 @@ import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
 import {
   CANVAS_ORIGIN,
   canvasCdpEvaluate,
+  canvasHistoryState,
   canvasReportSelection,
   canvasSetStylePx,
   canvasStatus,
+  canvasUndoStyle,
   clearCanvasStylePreview,
   parseCanvasMessage,
   previewCanvasStyle,
@@ -23,11 +25,13 @@ export default function App() {
   const [cdp, setCdp] = useState<string>("cdp: ...");
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
+  const [undoDepth, setUndoDepth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const autoInspected = useRef(false);
 
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
   useEffect(() => { canvasStatus().then(setCanvas).catch(() => {}); }, []);
+  useEffect(() => { canvasHistoryState().then((state) => setUndoDepth(state.undoDepth)).catch(() => {}); }, []);
 
   useEffect(() => {
     canvasCdpEvaluate("({title: document.title, url: location.href})")
@@ -89,6 +93,7 @@ export default function App() {
       );
       setLastPatch(patch);
       setLastPatchMs(performance.now() - started);
+      setUndoDepth(patch.undoDepth);
 
       window.setTimeout(() => {
         clearCanvasStylePreview(iframeRef.current);
@@ -98,6 +103,19 @@ export default function App() {
       clearCanvasStylePreview(iframeRef.current);
       requestCanvasInspect(iframeRef.current, selection.selector);
       throw error;
+    }
+  }
+
+  async function undoLastStyleEdit() {
+    const inspectSelector = selection?.selector;
+    clearCanvasStylePreview(iframeRef.current);
+    const result = await canvasUndoStyle();
+    setUndoDepth(result.undoDepth);
+    setLastPatch(null);
+    setLastPatchMs(null);
+
+    if (inspectSelector) {
+      window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector), 250);
     }
   }
 
@@ -134,10 +152,11 @@ export default function App() {
           {selection.source ? <div className="sourceRef">
             <b>Source</b>
             <code>{selection.source.file}:{selection.source.line}:{selection.source.column}</code>
-            <span>{selection.source.styleSelector} · {selection.source.styleFile}</span>
+            <span>{selection.source.styleSelector} · {selection.source.styleFile}{selection.source.styleLine ? `:${selection.source.styleLine}` : ""}</span>
             <div className="sourceActions">
               <button onClick={() => changeFontSize(-4)}>Font -4</button>
               <button onClick={() => changeFontSize(4)}>Font +4</button>
+              <button disabled={undoDepth === 0} onClick={undoLastStyleEdit}>Undo {undoDepth ? `(${undoDepth})` : ""}</button>
             </div>
             {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
           </div> : <div className="sourceRef"><b>Source</b><span>No source metadata yet</span></div>}
