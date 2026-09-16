@@ -25,6 +25,7 @@ export type CanvasSelection = {
 };
 
 export const NIA_SHELL_ORIGIN = "http://127.0.0.1:1420";
+const SAMPLE_STYLE_FILE = "sample/src/styles.css";
 
 const STYLE_PROPS = [
   "display",
@@ -61,17 +62,27 @@ function describePart(el: Element): string {
   return `${tag}${classes}${nth}`;
 }
 
+function styleSelectorFor(el: Element) {
+  const firstClass = el.classList.item(0);
+  if (firstClass) return `.${cssEscape(firstClass)}`;
+  if (el.id) return `#${cssEscape(el.id)}`;
+  return el.tagName.toLowerCase();
+}
+
 function sourceFor(el: Element): CanvasSourceRef | null {
   const owner = el.closest<HTMLElement>("[data-nia-source-file]");
   if (!owner) return null;
+
+  const file = owner.dataset.niaSourceFile ?? "";
   const line = Number.parseInt(owner.dataset.niaSourceLine ?? "0", 10);
   const column = Number.parseInt(owner.dataset.niaSourceColumn ?? "0", 10);
+
   return {
-    file: owner.dataset.niaSourceFile ?? "",
+    file,
     line: Number.isFinite(line) ? line : 0,
     column: Number.isFinite(column) ? column : 0,
-    styleFile: owner.dataset.niaStyleFile ?? "",
-    styleSelector: owner.dataset.niaStyleSelector ?? "",
+    styleFile: file.startsWith("sample/src/") ? SAMPLE_STYLE_FILE : "",
+    styleSelector: styleSelectorFor(el),
   };
 }
 
