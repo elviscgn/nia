@@ -30,6 +30,7 @@ export default function App() {
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const selectionRef = useRef<CanvasSelection | null>(null);
   const autoInspected = useRef(false);
 
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
@@ -40,7 +41,15 @@ export default function App() {
     let active = true;
     const refresh = () => {
       canvasStyleIndexState()
-        .then((state) => { if (active) setStyleIndex(state); })
+        .then((state) => {
+          if (!active) return;
+          setStyleIndex((previous) => {
+            if (previous && previous.version !== state.version && selectionRef.current) {
+              requestCanvasInspect(iframeRef.current, selectionRef.current.selector);
+            }
+            return state;
+          });
+        })
         .catch(() => {});
     };
     refresh();
@@ -69,8 +78,11 @@ export default function App() {
         }
       } else {
         try {
-          setSelection(await canvasReportSelection(msg.selection));
+          const resolved = await canvasReportSelection(msg.selection);
+          selectionRef.current = resolved;
+          setSelection(resolved);
         } catch {
+          selectionRef.current = msg.selection;
           setSelection(msg.selection);
         }
       }
