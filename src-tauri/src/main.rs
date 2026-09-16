@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
@@ -10,7 +10,6 @@ use tauri_runtime_cef::{allocate_devtools_message_id, DevToolsProtocol, WebviewC
 struct CoreStarted(Instant);
 
 const CANVAS_SAMPLE_URL: &str = "http://127.0.0.1:1421";
-const SAMPLE_STYLE_FILE: &str = "sample/src/styles.css";
 
 #[derive(Serialize)]
 struct CoreHealth {
@@ -34,8 +33,12 @@ struct CanvasSourceRef {
     file: String,
     line: u32,
     column: u32,
+    #[serde(default)]
     style_file: String,
+    #[serde(default)]
     style_selector: String,
+    #[serde(default)]
+    style_line: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,8 +74,19 @@ struct CanvasStylePatchResult {
     value: String,
 }
 
+#[derive(Debug, Clone)]
+struct StyleRuleRef {
+    file: String,
+    selector: String,
+    line: u32,
+}
+
 struct CanvasState {
     selection: Mutex<Option<CanvasSelection>>,
+}
+
+struct StyleIndex {
+    rules: Mutex<Vec<StyleRuleRef>>,
 }
 
 #[tauri::command]
@@ -108,8 +122,9 @@ async fn canvas_status() -> CanvasStatus {
         tokio::net::TcpStream::connect("127.0.0.1:1421"),
     )
     .await
-    .map(|r| r.is_ok())
+    .map(|result| result.is_ok())
     .unwrap_or(false);
+
     CanvasStatus {
         url: CANVAS_SAMPLE_URL,
         reachable,
@@ -117,27 +132,14 @@ async fn canvas_status() -> CanvasStatus {
     }
 }
 
-#[tauri::command]
-fn canvas_report_selection(
-    selection: CanvasSelection,
-    state: tauri::State<'_, CanvasState>,
-) -> Result<(), String> {
-    *state.selection.lock().map_err(|e| e.to_string())? = Some(selection);
-    Ok(())
+fn project_root() -> Result<PathBuf, String> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "could not resolve project root".to_string())
 }
 
-#[tauri::command]
-fn canvas_selection(state: tauri::State<'_, CanvasState>) -> Result<Option<CanvasSelection>, String> {
-    Ok(state.selection.lock().map_err(|e| e.to_string())?.clone())
-}
-
-#[tauri::command]
-fn canvas_clear_selection(state: tauri::State<'_, CanvasState>) -> Result<(), String> {
-    *state.selection.lock().map_err(|e| e.to_string())? = None;
-    Ok(())
-}
-
-fn safe_project_file(relative: &str) -> Result<std::path::PathBuf, String> {
+fn safe_project_file(relative: &str) -> Result<PathBuf, String> {
     let relative_path = Path::new(relative);
     if relative_path.is_absolute()
         || relative_path.components().any(|component| {
@@ -150,10 +152,192 @@ fn safe_project_file(relative: &str) -> Result<std::path::PathBuf, String> {
         return Err("unsafe project path".to_string());
     }
 
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+    Ok(project_root()?.join(relative_path))
+}
+
+fn relative_project_path(path: &Path) -> Result<String, String> {
+    let root = project_root()?;
+    let relative = path
+        .strip_prefix(&root)
+        .map_err(|_| format!("{} is outside the project root", path.display()))?;
+    Ok(relative.to_string_lossy().replace('\\', "/"))
+}
+
+fn should_skip_dir(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| matches!(name, ".git" | "node_modules" | "target" | "dist" | ".vite"))
+        .unwrap_or(false)
+}
+
+fn collect_css_files(dir: &Path, output: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if !should_skip_dir(&path) {
+                collect_css_files(&path, output);
+            }
+            continue;
+        }
+
+        if path.extension().and_then(|ext| ext.to_str()) == Some("css") {
+            output.push(path);
+        }
+    }
+}
+
+fn index_css_file(path: &Path, css: &str) -> Vec<StyleRuleRef> {
+    let Ok(file) = relative_project_path(path) else {
+        return Vec::new();
+    };
+
+    let mut rules = Vec::new();
+    let mut boundary = 0usize;
+
+    for (index, ch) in css.char_indices() {
+        match ch {
+            '{' => {
+                let head = css[boundary..index].trim();
+                if head.is_empty() || head.starts_with('@') {
+                    continue;
+                }
+
+                let line = css[..index].bytes().filter(|byte| *byte == b'\n').count() as u32 + 1;
+                for selector in head.split(',').map(str::trim).filter(|selector| !selector.is_empty()) {
+                    rules.push(StyleRuleRef {
+                        file: file.clone(),
+                        selector: selector.to_string(),
+                        line,
+                    });
+                }
+            }
+            '}' => boundary = index + ch.len_utf8(),
+            _ => {}
+        }
+    }
+
+    rules
+}
+
+fn build_style_index() -> Vec<StyleRuleRef> {
+    let Ok(root) = project_root() else {
+        return Vec::new();
+    };
+
+    let mut css_files = Vec::new();
+    collect_css_files(&root, &mut css_files);
+
+    let mut rules = Vec::new();
+    for path in css_files {
+        let Ok(css) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        rules.extend(index_css_file(&path, &css));
+    }
+    rules
+}
+
+fn selector_score(rule: &str, selection: &CanvasSelection) -> i32 {
+    let rule = rule.trim();
+    let mut score = 0;
+
+    if !selection.id.is_empty() {
+        let id_selector = format!("#{}", selection.id);
+        if rule == id_selector {
+            score = score.max(120);
+        } else if rule.ends_with(&format!(" {id_selector}")) {
+            score = score.max(105);
+        }
+    }
+
+    if !selection.classes.is_empty() {
+        let compound = format!(".{}", selection.classes.join("."));
+        if rule == compound {
+            score = score.max(115);
+        }
+
+        for (index, class_name) in selection.classes.iter().enumerate() {
+            let class_selector = format!(".{class_name}");
+            let class_score = 100 - index as i32;
+            if rule == class_selector {
+                score = score.max(class_score);
+            } else if rule.ends_with(&format!(" {class_selector}")) {
+                score = score.max(class_score - 10);
+            }
+        }
+    }
+
+    if rule == selection.tag {
+        score = score.max(60);
+    } else if rule.ends_with(&format!(" {}", selection.tag)) {
+        score = score.max(50);
+    }
+
+    score
+}
+
+fn resolve_style_source(selection: &mut CanvasSelection, style_index: &StyleIndex) {
+    let Some(source) = selection.source.as_mut() else {
+        return;
+    };
+
+    let source_parent = Path::new(&source.file)
         .parent()
-        .ok_or_else(|| "could not resolve project root".to_string())?;
-    Ok(root.join(relative_path))
+        .map(|path| path.to_string_lossy().replace('\\', "/"));
+
+    let Ok(rules) = style_index.rules.lock() else {
+        return;
+    };
+
+    let mut best: Option<(i32, &StyleRuleRef)> = None;
+    for rule in rules.iter() {
+        let mut score = selector_score(&rule.selector, selection);
+        if score == 0 {
+            continue;
+        }
+
+        if let Some(parent) = &source_parent {
+            if rule.file.starts_with(parent) {
+                score += 20;
+            }
+        }
+
+        if best.map(|(current, _)| score > current).unwrap_or(true) {
+            best = Some((score, rule));
+        }
+    }
+
+    if let Some((_, rule)) = best {
+        source.style_file = rule.file.clone();
+        source.style_selector = rule.selector.clone();
+        source.style_line = rule.line;
+    }
+}
+
+#[tauri::command]
+fn canvas_report_selection(
+    mut selection: CanvasSelection,
+    canvas_state: tauri::State<'_, CanvasState>,
+    style_index: tauri::State<'_, StyleIndex>,
+) -> Result<CanvasSelection, String> {
+    resolve_style_source(&mut selection, &style_index);
+    *canvas_state.selection.lock().map_err(|error| error.to_string())? = Some(selection.clone());
+    Ok(selection)
+}
+
+#[tauri::command]
+fn canvas_selection(state: tauri::State<'_, CanvasState>) -> Result<Option<CanvasSelection>, String> {
+    Ok(state.selection.lock().map_err(|error| error.to_string())?.clone())
+}
+
+#[tauri::command]
+fn canvas_clear_selection(state: tauri::State<'_, CanvasState>) -> Result<(), String> {
+    *state.selection.lock().map_err(|error| error.to_string())? = None;
+    Ok(())
 }
 
 fn allowed_numeric_property(property: &str) -> bool {
@@ -248,8 +432,9 @@ async fn canvas_set_style_px(
     property: String,
     value_px: f64,
 ) -> Result<CanvasStylePatchResult, String> {
-    if file != SAMPLE_STYLE_FILE {
-        return Err(format!("spike only allows edits to {SAMPLE_STYLE_FILE}"));
+    let path = safe_project_file(&file)?;
+    if path.extension().and_then(|extension| extension.to_str()) != Some("css") {
+        return Err("deterministic style edits currently require a CSS file".to_string());
     }
     if selector.trim().is_empty() {
         return Err("missing CSS selector".to_string());
@@ -267,14 +452,13 @@ async fn canvas_set_style_px(
         format!("{value_px:.2}px")
     };
 
-    let path = safe_project_file(&file)?;
     let css = tokio::fs::read_to_string(&path)
         .await
-        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     let (patched, previous_value) = patch_one_line_css_rule(&css, &selector, &property, &value)?;
     tokio::fs::write(&path, patched)
         .await
-        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
 
     Ok(CanvasStylePatchResult {
         file,
@@ -293,13 +477,13 @@ async fn canvas_cdp_evaluate<R: tauri::Runtime>(
 where
     R::WebviewDispatcher: tauri_runtime_cef::AsCefWebviewDispatcher,
 {
-    let message_id = allocate_devtools_message_id().map_err(|e| e.to_string())?;
+    let message_id = allocate_devtools_message_id().map_err(|error| error.to_string())?;
     let message = serde_json::json!({
         "id": message_id,
         "method": "Runtime.evaluate",
         "params": { "expression": expression, "returnByValue": true }
     });
-    let bytes = serde_json::to_vec(&message).map_err(|e| e.to_string())?;
+    let bytes = serde_json::to_vec(&message).map_err(|error| error.to_string())?;
 
     let (tx, rx) = tokio::sync::oneshot::channel::<(bool, Vec<u8>)>();
     let pending = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
@@ -318,11 +502,11 @@ where
                 }
             }
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
 
     webview
         .send_dev_tools_message(&bytes)
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?;
 
     let (success, result) = tokio::time::timeout(Duration::from_secs(10), rx)
         .await
@@ -333,7 +517,7 @@ where
     }
 
     let value: serde_json::Value =
-        serde_json::from_slice(&result).map_err(|e| format!("bad CDP result: {e}"))?;
+        serde_json::from_slice(&result).map_err(|error| format!("bad CDP result: {error}"))?;
     if let Some(error) = value.get("exceptionDetails") {
         return Err(format!("JS threw: {error}"));
     }
@@ -342,11 +526,16 @@ where
 }
 
 fn main() {
+    let style_rules = build_style_index();
+
     tauri::Builder::default()
         .runtime(tauri_runtime_cef::Cef::default())
         .manage(CoreStarted(Instant::now()))
         .manage(CanvasState {
             selection: Mutex::new(None),
+        })
+        .manage(StyleIndex {
+            rules: Mutex::new(style_rules),
         })
         .invoke_handler(tauri::generate_handler![
             ping,
