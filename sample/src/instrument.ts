@@ -1,10 +1,15 @@
 // Browser-side instrumentation for the sample canvas app.
-//
-// Runs INSIDE the sample page (port 1421). Builds a plain-JSON description of
-// an element and ships it to the Nia shell (port 1420) via postMessage, since
-// the iframe is cross-origin and the shell cannot read its DOM directly.
+// Runs inside the sample page and reports plain JSON back to the Nia shell.
 
 export type CanvasRect = { x: number; y: number; width: number; height: number };
+
+export type CanvasSourceRef = {
+  file: string;
+  line: number;
+  column: number;
+  styleFile: string;
+  styleSelector: string;
+};
 
 export type CanvasSelection = {
   tag: string;
@@ -16,11 +21,11 @@ export type CanvasSelection = {
   styles: Record<string, string>;
   text: string;
   sourceUrl: string;
+  source: CanvasSourceRef | null;
 };
 
 export const NIA_SHELL_ORIGIN = "http://127.0.0.1:1420";
 
-// Computed styles worth showing in the inspector. Kept small on purpose.
 const STYLE_PROPS = [
   "display",
   "position",
@@ -33,17 +38,41 @@ const STYLE_PROPS = [
   "margin",
   "padding",
   "border",
+  "borderRadius",
   "flexDirection",
   "alignItems",
   "justifyContent",
   "gap",
 ] as const;
 
+function cssEscape(value: string) {
+  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
 function describePart(el: Element): string {
-  let part = el.tagName.toLowerCase();
-  if (el.id) part += `#${el.id}`;
-  for (const cls of el.classList) part += `.${cls}`;
-  return part;
+  const tag = el.tagName.toLowerCase();
+  if (el.id) return `${tag}#${cssEscape(el.id)}`;
+
+  const classes = Array.from(el.classList).map((cls) => `.${cssEscape(cls)}`).join("");
+  const siblings = el.parentElement
+    ? Array.from(el.parentElement.children).filter((node) => node.tagName === el.tagName)
+    : [];
+  const nth = siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(el) + 1})` : "";
+  return `${tag}${classes}${nth}`;
+}
+
+function sourceFor(el: Element): CanvasSourceRef | null {
+  const owner = el.closest<HTMLElement>("[data-nia-source-file]");
+  if (!owner) return null;
+  const line = Number.parseInt(owner.dataset.niaSourceLine ?? "0", 10);
+  const column = Number.parseInt(owner.dataset.niaSourceColumn ?? "0", 10);
+  return {
+    file: owner.dataset.niaSourceFile ?? "",
+    line: Number.isFinite(line) ? line : 0,
+    column: Number.isFinite(column) ? column : 0,
+    styleFile: owner.dataset.niaStyleFile ?? "",
+    styleSelector: owner.dataset.niaStyleSelector ?? "",
+  };
 }
 
 export function describeElement(el: Element): CanvasSelection {
@@ -60,9 +89,7 @@ export function describeElement(el: Element): CanvasSelection {
   const computed = getComputedStyle(el);
   const styles: Record<string, string> = {};
   for (const prop of STYLE_PROPS) {
-    const value = computed.getPropertyValue(
-      prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`),
-    );
+    const value = computed.getPropertyValue(prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`));
     if (value) styles[prop] = value.trim();
   }
 
@@ -76,6 +103,7 @@ export function describeElement(el: Element): CanvasSelection {
     styles,
     text: ((el as HTMLElement).innerText || el.textContent || "").trim().slice(0, 140),
     sourceUrl: location.href,
+    source: sourceFor(el),
   };
 }
 
@@ -84,43 +112,64 @@ export function postSelection(selection: CanvasSelection) {
 }
 
 let highlighted: Element | null = null;
+let overlay: HTMLDivElement | null = null;
+
+function ensureOverlay() {
+  if (overlay) return overlay;
+  overlay = document.createElement("div");
+  overlay.setAttribute("data-nia-overlay", "true");
+  Object.assign(overlay.style, {
+    position: "fixed",
+    pointerEvents: "none",
+    zIndex: "2147483647",
+    border: "2px solid #d7a11c",
+    boxSizing: "border-box",
+  });
+  document.documentElement.appendChild(overlay);
+  return overlay;
+}
+
+function positionOverlay() {
+  if (!highlighted) return;
+  const rect = highlighted.getBoundingClientRect();
+  const target = ensureOverlay();
+  target.style.left = `${rect.left}px`;
+  target.style.top = `${rect.top}px`;
+  target.style.width = `${rect.width}px`;
+  target.style.height = `${rect.height}px`;
+}
 
 export function highlight(el: Element) {
-  if (highlighted instanceof HTMLElement) highlighted.style.outline = "";
   highlighted = el;
-  if (el instanceof HTMLElement) el.style.outline = "2px solid #d7a11c";
+  positionOverlay();
 }
 
 function inspectSelector(selector: string) {
   const el = selector ? document.querySelector(selector) : null;
-  if (el) {
-    highlight(el);
-    postSelection(describeElement(el));
-  }
+  if (!el) return;
+  highlight(el);
+  postSelection(describeElement(el));
 }
 
-// Call once from the sample app entrypoint.
 export function initNiaCanvasBridge() {
   window.parent.postMessage(
     { source: "nia-canvas", kind: "nia:ready", url: location.href },
     NIA_SHELL_ORIGIN,
   );
 
-  // Click-to-inspect: capture before React/app handlers, never navigate away.
   document.addEventListener(
     "click",
     (event) => {
       event.preventDefault();
       event.stopPropagation();
       const el = event.target instanceof Element ? event.target : document.body;
+      if (el === overlay) return;
       highlight(el);
       postSelection(describeElement(el));
     },
     true,
   );
 
-  // Let the shell request inspection of a specific selector (used for the
-  // automatic end-to-end self-check, no click required).
   window.addEventListener("message", (event) => {
     if (event.origin !== NIA_SHELL_ORIGIN) return;
     const data = event.data as { source?: string; kind?: string; selector?: string };
@@ -128,7 +177,9 @@ export function initNiaCanvasBridge() {
     inspectSelector(data.selector || "body");
   });
 
-  // Escape hatch for console / CDP-driven inspection.
+  window.addEventListener("resize", positionOverlay);
+  window.addEventListener("scroll", positionOverlay, true);
+
   (window as unknown as { __niaInspect: (s?: string) => CanvasSelection | null }).__niaInspect = (
     selector = "body",
   ) => {
