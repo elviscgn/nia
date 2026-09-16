@@ -32,6 +32,19 @@ export type CanvasStylePatchResult = {
   property: string;
   previousValue: string | null;
   value: string;
+  undoDepth: number;
+};
+
+export type CanvasUndoResult = {
+  file: string;
+  selector: string;
+  property: string;
+  restoredValue: string | null;
+  undoDepth: number;
+};
+
+export type CanvasHistoryState = {
+  undoDepth: number;
 };
 
 export const CANVAS_ORIGIN = "http://127.0.0.1:1421";
@@ -44,6 +57,8 @@ export const canvasReportSelection = (selection: CanvasSelection) =>
 
 export const canvasSelection = () => invoke<CanvasSelection | null>("canvas_selection");
 export const canvasClearSelection = () => invoke<void>("canvas_clear_selection");
+export const canvasHistoryState = () => invoke<CanvasHistoryState>("canvas_history_state");
+export const canvasUndoStyle = () => invoke<CanvasUndoResult>("canvas_undo_style");
 
 export const canvasCdpEvaluate = (expression: string) =>
   invoke<unknown>("canvas_cdp_evaluate", { expression });
