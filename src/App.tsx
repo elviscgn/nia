@@ -6,7 +6,9 @@ import {
   canvasReportSelection,
   canvasSetStylePx,
   canvasStatus,
+  clearCanvasStylePreview,
   parseCanvasMessage,
+  previewCanvasStyle,
   requestCanvasInspect,
   type CanvasSelection,
   type CanvasStatus,
@@ -20,6 +22,7 @@ export default function App() {
   const [canvas, setCanvas] = useState<CanvasStatus | null>(null);
   const [cdp, setCdp] = useState<string>("cdp: ...");
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
+  const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const autoInspected = useRef(false);
 
@@ -65,14 +68,37 @@ export default function App() {
     const current = Number.parseFloat(selection.styles.fontSize ?? "");
     if (!Number.isFinite(current)) return;
 
-    const patch = await canvasSetStylePx(
-      selection.source.styleFile,
+    const next = Math.max(1, current + delta);
+    const nextValue = `${next}px`;
+
+    previewCanvasStyle(
+      iframeRef.current,
       selection.source.styleSelector,
       "font-size",
-      Math.max(1, current + delta),
+      nextValue,
+      selection.selector,
     );
-    setLastPatch(patch);
-    window.setTimeout(() => requestCanvasInspect(iframeRef.current, selection.selector), 150);
+
+    const started = performance.now();
+    try {
+      const patch = await canvasSetStylePx(
+        selection.source.styleFile,
+        selection.source.styleSelector,
+        "font-size",
+        next,
+      );
+      setLastPatch(patch);
+      setLastPatchMs(performance.now() - started);
+
+      window.setTimeout(() => {
+        clearCanvasStylePreview(iframeRef.current);
+        requestCanvasInspect(iframeRef.current, selection.selector);
+      }, 400);
+    } catch (error) {
+      clearCanvasStylePreview(iframeRef.current);
+      requestCanvasInspect(iframeRef.current, selection.selector);
+      throw error;
+    }
   }
 
   return <main className="app">
@@ -113,7 +139,7 @@ export default function App() {
               <button onClick={() => changeFontSize(-4)}>Font -4</button>
               <button onClick={() => changeFontSize(4)}>Font +4</button>
             </div>
-            {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}</small> : null}
+            {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
           </div> : <div className="sourceRef"><b>Source</b><span>No source metadata yet</span></div>}
           <div className="kv"><span>box</span><span>{selection.rect.x}, {selection.rect.y} · {selection.rect.width} × {selection.rect.height}</span></div>
           <div className="kv"><span>text</span><span>{selection.text || "-"}</span></div>
