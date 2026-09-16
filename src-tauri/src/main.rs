@@ -1,16 +1,16 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::path::{Component, Path};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use tauri_runtime_cef::{DevToolsProtocol, WebviewCefExt, allocate_devtools_message_id};
+use tauri_runtime_cef::{allocate_devtools_message_id, DevToolsProtocol, WebviewCefExt};
 
 #[derive(Clone)]
 struct CoreStarted(Instant);
 
-/// URL of the sample app served for the canvas. Single place that owns it on
-/// the Rust side; the frontend asks for it instead of hardcoding.
 const CANVAS_SAMPLE_URL: &str = "http://127.0.0.1:1421";
+const SAMPLE_STYLE_FILE: &str = "sample/src/styles.css";
 
 #[derive(Serialize)]
 struct CoreHealth {
@@ -28,8 +28,16 @@ struct CanvasRect {
     height: f64,
 }
 
-/// Element description produced by the sample page's instrumentation and
-/// stored by Rust, which stays the source of truth for the inspector.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasSourceRef {
+    file: String,
+    line: u32,
+    column: u32,
+    style_file: String,
+    style_selector: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct CanvasSelection {
@@ -42,6 +50,7 @@ struct CanvasSelection {
     styles: BTreeMap<String, String>,
     text: String,
     source_url: String,
+    source: Option<CanvasSourceRef>,
 }
 
 #[derive(Serialize)]
@@ -50,6 +59,16 @@ struct CanvasStatus {
     url: &'static str,
     reachable: bool,
     latency_ms: u128,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasStylePatchResult {
+    file: String,
+    selector: String,
+    property: String,
+    previous_value: Option<String>,
+    value: String,
 }
 
 struct CanvasState {
@@ -81,8 +100,6 @@ fn canvas_sample_url() -> &'static str {
     CANVAS_SAMPLE_URL
 }
 
-/// Liveness check for the sample dev server, so the shell can show whether
-/// the canvas page is actually being served. Plain TCP connect: no new deps.
 #[tauri::command]
 async fn canvas_status() -> CanvasStatus {
     let started = Instant::now();
@@ -100,8 +117,6 @@ async fn canvas_status() -> CanvasStatus {
     }
 }
 
-/// The shell forwards every canvas selection here; Rust stores it and the
-/// inspector reads it back via `canvas_selection`.
 #[tauri::command]
 fn canvas_report_selection(
     selection: CanvasSelection,
@@ -122,14 +137,154 @@ fn canvas_clear_selection(state: tauri::State<'_, CanvasState>) -> Result<(), St
     Ok(())
 }
 
-/// Evaluate JavaScript in the Nia webview through the CEF DevTools protocol.
-///
-/// This is the real `tauri-runtime-cef` CDP path: the message id comes from
-/// the shared `allocate_devtools_message_id` allocator and the reply is
-/// correlated from the browser-wide `on_dev_tools_protocol` observer stream.
-/// Each call registers a narrow observer that only answers its own id and
-/// ignores everyone else's traffic (acceptable for a spike; a production
-/// version would use one shared observer plus a pending-request map).
+fn safe_project_file(relative: &str) -> Result<std::path::PathBuf, String> {
+    let relative_path = Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        })
+    {
+        return Err("unsafe project path".to_string());
+    }
+
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .ok_or_else(|| "could not resolve project root".to_string())?;
+    Ok(root.join(relative_path))
+}
+
+fn allowed_numeric_property(property: &str) -> bool {
+    matches!(
+        property,
+        "font-size" | "gap" | "padding" | "border-radius" | "margin-top" | "margin-bottom"
+    )
+}
+
+fn patch_one_line_css_rule(
+    css: &str,
+    selector: &str,
+    property: &str,
+    value: &str,
+) -> Result<(String, Option<String>), String> {
+    let mut output = Vec::new();
+    let mut changed = false;
+    let mut previous_value = None;
+
+    for raw_line in css.lines() {
+        if changed {
+            output.push(raw_line.to_string());
+            continue;
+        }
+
+        let trimmed = raw_line.trim();
+        let Some((head, rest)) = trimmed.split_once('{') else {
+            output.push(raw_line.to_string());
+            continue;
+        };
+        if head.trim() != selector {
+            output.push(raw_line.to_string());
+            continue;
+        }
+
+        let Some((body, suffix)) = rest.split_once('}') else {
+            return Err(format!("CSS rule for {selector} must be on one line in this spike"));
+        };
+
+        let mut declarations: Vec<(String, String)> = body
+            .split(';')
+            .filter_map(|declaration| {
+                let declaration = declaration.trim();
+                if declaration.is_empty() {
+                    return None;
+                }
+                declaration
+                    .split_once(':')
+                    .map(|(name, value)| (name.trim().to_string(), value.trim().to_string()))
+            })
+            .collect();
+
+        let mut found = false;
+        for (name, current) in &mut declarations {
+            if name == property {
+                previous_value = Some(current.clone());
+                *current = value.to_string();
+                found = true;
+                break;
+            }
+        }
+        if !found {
+            declarations.push((property.to_string(), value.to_string()));
+        }
+
+        let indent_len = raw_line.len().saturating_sub(raw_line.trim_start().len());
+        let indent = &raw_line[..indent_len];
+        let body = declarations
+            .into_iter()
+            .map(|(name, value)| format!("{name}: {value}"))
+            .collect::<Vec<_>>()
+            .join("; ");
+        output.push(format!("{indent}{selector} {{ {body}; }}{suffix}"));
+        changed = true;
+    }
+
+    if !changed {
+        return Err(format!("CSS selector not found: {selector}"));
+    }
+
+    let mut result = output.join("\n");
+    if css.ends_with('\n') {
+        result.push('\n');
+    }
+    Ok((result, previous_value))
+}
+
+#[tauri::command]
+async fn canvas_set_style_px(
+    file: String,
+    selector: String,
+    property: String,
+    value_px: f64,
+) -> Result<CanvasStylePatchResult, String> {
+    if file != SAMPLE_STYLE_FILE {
+        return Err(format!("spike only allows edits to {SAMPLE_STYLE_FILE}"));
+    }
+    if selector.trim().is_empty() {
+        return Err("missing CSS selector".to_string());
+    }
+    if !allowed_numeric_property(&property) {
+        return Err(format!("property is not allowed for deterministic px edits: {property}"));
+    }
+    if !value_px.is_finite() || !(0.0..=1000.0).contains(&value_px) {
+        return Err("pixel value must be finite and between 0 and 1000".to_string());
+    }
+
+    let value = if value_px.fract() == 0.0 {
+        format!("{}px", value_px as i64)
+    } else {
+        format!("{value_px:.2}px")
+    };
+
+    let path = safe_project_file(&file)?;
+    let css = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let (patched, previous_value) = patch_one_line_css_rule(&css, &selector, &property, &value)?;
+    tokio::fs::write(&path, patched)
+        .await
+        .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+
+    Ok(CanvasStylePatchResult {
+        file,
+        selector,
+        property,
+        previous_value,
+        value,
+    })
+}
+
 #[tauri::command]
 async fn canvas_cdp_evaluate<R: tauri::Runtime>(
     webview: tauri::WebviewWindow<R>,
@@ -157,7 +312,7 @@ where
             } = protocol
             {
                 if id == message_id
-                    && let Some(tx) = pending.lock().ok().and_then(|mut g| g.take())
+                    && let Some(tx) = pending.lock().ok().and_then(|mut guard| guard.take())
                 {
                     let _ = tx.send((success, result));
                 }
@@ -165,7 +320,9 @@ where
         })
         .map_err(|e| e.to_string())?;
 
-    webview.send_dev_tools_message(&bytes).map_err(|e| e.to_string())?;
+    webview
+        .send_dev_tools_message(&bytes)
+        .map_err(|e| e.to_string())?;
 
     let (success, result) = tokio::time::timeout(Duration::from_secs(10), rx)
         .await
@@ -174,17 +331,14 @@ where
     if !success {
         return Err("CDP Runtime.evaluate reported failure".to_string());
     }
+
     let value: serde_json::Value =
         serde_json::from_slice(&result).map_err(|e| format!("bad CDP result: {e}"))?;
     if let Some(error) = value.get("exceptionDetails") {
         return Err(format!("JS threw: {error}"));
     }
-    // Runtime.evaluate answers { result: { type, value } }; hand the caller
-    // just the value, falling back to the whole payload.
-    Ok(value
-        .pointer("/result/value")
-        .cloned()
-        .unwrap_or(value))
+
+    Ok(value.pointer("/result/value").cloned().unwrap_or(value))
 }
 
 fn main() {
@@ -203,6 +357,7 @@ fn main() {
             canvas_report_selection,
             canvas_selection,
             canvas_clear_selection,
+            canvas_set_style_px,
             canvas_cdp_evaluate
         ])
         .run(tauri::generate_context!())
