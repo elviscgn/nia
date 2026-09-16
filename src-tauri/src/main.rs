@@ -10,6 +10,7 @@ use tauri_runtime_cef::{allocate_devtools_message_id, DevToolsProtocol, WebviewC
 struct CoreStarted(Instant);
 
 const CANVAS_SAMPLE_URL: &str = "http://127.0.0.1:1421";
+const MAX_EDIT_HISTORY: usize = 100;
 
 #[derive(Serialize)]
 struct CoreHealth {
@@ -72,6 +73,23 @@ struct CanvasStylePatchResult {
     property: String,
     previous_value: Option<String>,
     value: String,
+    undo_depth: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasUndoResult {
+    file: String,
+    selector: String,
+    property: String,
+    restored_value: Option<String>,
+    undo_depth: usize,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct CanvasHistoryState {
+    undo_depth: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -81,12 +99,26 @@ struct StyleRuleRef {
     line: u32,
 }
 
+#[derive(Debug, Clone)]
+struct CanvasEdit {
+    file: String,
+    selector: String,
+    property: String,
+    before: String,
+    after: String,
+    previous_value: Option<String>,
+}
+
 struct CanvasState {
     selection: Mutex<Option<CanvasSelection>>,
 }
 
 struct StyleIndex {
     rules: Mutex<Vec<StyleRuleRef>>,
+}
+
+struct EditHistory {
+    undo: Mutex<Vec<CanvasEdit>>,
 }
 
 #[tauri::command]
@@ -343,6 +375,12 @@ fn canvas_clear_selection(state: tauri::State<'_, CanvasState>) -> Result<(), St
     Ok(())
 }
 
+#[tauri::command]
+fn canvas_history_state(history: tauri::State<'_, EditHistory>) -> Result<CanvasHistoryState, String> {
+    let undo_depth = history.undo.lock().map_err(|error| error.to_string())?.len();
+    Ok(CanvasHistoryState { undo_depth })
+}
+
 fn allowed_numeric_property(property: &str) -> bool {
     matches!(
         property,
@@ -434,6 +472,7 @@ async fn canvas_set_style_px(
     selector: String,
     property: String,
     value_px: f64,
+    history: tauri::State<'_, EditHistory>,
 ) -> Result<CanvasStylePatchResult, String> {
     let path = safe_project_file(&file)?;
     if path.extension().and_then(|extension| extension.to_str()) != Some("css") {
@@ -459,9 +498,26 @@ async fn canvas_set_style_px(
         .await
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
     let (patched, previous_value) = patch_one_line_css_rule(&css, &selector, &property, &value)?;
-    tokio::fs::write(&path, patched)
+
+    tokio::fs::write(&path, &patched)
         .await
         .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
+
+    let undo_depth = {
+        let mut undo = history.undo.lock().map_err(|error| error.to_string())?;
+        undo.push(CanvasEdit {
+            file: file.clone(),
+            selector: selector.clone(),
+            property: property.clone(),
+            before: css,
+            after: patched,
+            previous_value: previous_value.clone(),
+        });
+        if undo.len() > MAX_EDIT_HISTORY {
+            undo.remove(0);
+        }
+        undo.len()
+    };
 
     Ok(CanvasStylePatchResult {
         file,
@@ -469,6 +525,43 @@ async fn canvas_set_style_px(
         property,
         previous_value,
         value,
+        undo_depth,
+    })
+}
+
+#[tauri::command]
+async fn canvas_undo_style(history: tauri::State<'_, EditHistory>) -> Result<CanvasUndoResult, String> {
+    let edit = {
+        let mut undo = history.undo.lock().map_err(|error| error.to_string())?;
+        undo.pop().ok_or_else(|| "nothing to undo".to_string())?
+    };
+
+    let path = safe_project_file(&edit.file)?;
+    let current = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+
+    if current != edit.after {
+        history
+            .undo
+            .lock()
+            .map_err(|error| error.to_string())?
+            .push(edit);
+        return Err("file changed after the Nia edit, refusing to overwrite newer work".to_string());
+    }
+
+    tokio::fs::write(&path, &edit.before)
+        .await
+        .map_err(|error| format!("failed to restore {}: {error}", path.display()))?;
+
+    let undo_depth = history.undo.lock().map_err(|error| error.to_string())?.len();
+
+    Ok(CanvasUndoResult {
+        file: edit.file,
+        selector: edit.selector,
+        property: edit.property,
+        restored_value: edit.previous_value,
+        undo_depth,
     })
 }
 
@@ -540,6 +633,9 @@ fn main() {
         .manage(StyleIndex {
             rules: Mutex::new(style_rules),
         })
+        .manage(EditHistory {
+            undo: Mutex::new(Vec::new()),
+        })
         .invoke_handler(tauri::generate_handler![
             ping,
             core_health,
@@ -549,7 +645,9 @@ fn main() {
             canvas_report_selection,
             canvas_selection,
             canvas_clear_selection,
+            canvas_history_state,
             canvas_set_style_px,
+            canvas_undo_style,
             canvas_cdp_evaluate
         ])
         .run(tauri::generate_context!())
