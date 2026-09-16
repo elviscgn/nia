@@ -113,6 +113,7 @@ export function postSelection(selection: CanvasSelection) {
 
 let highlighted: Element | null = null;
 let overlay: HTMLDivElement | null = null;
+let previewStyle: HTMLStyleElement | null = null;
 
 function ensureOverlay() {
   if (overlay) return overlay;
@@ -127,6 +128,14 @@ function ensureOverlay() {
   });
   document.documentElement.appendChild(overlay);
   return overlay;
+}
+
+function ensurePreviewStyle() {
+  if (previewStyle) return previewStyle;
+  previewStyle = document.createElement("style");
+  previewStyle.setAttribute("data-nia-style-preview", "true");
+  document.head.appendChild(previewStyle);
+  return previewStyle;
 }
 
 function positionOverlay() {
@@ -151,6 +160,21 @@ function inspectSelector(selector: string) {
   postSelection(describeElement(el));
 }
 
+function previewStyleChange(selector: string, property: string, value: string, inspectTarget: string) {
+  if (!selector.trim() || !/^[a-z-]+$/i.test(property) || !/^-?\d+(?:\.\d+)?px$/.test(value)) return;
+  const style = ensurePreviewStyle();
+  style.textContent = `${selector} { ${property}: ${value} !important; }`;
+
+  requestAnimationFrame(() => {
+    inspectSelector(inspectTarget || selector);
+  });
+}
+
+function clearStylePreview() {
+  if (previewStyle) previewStyle.textContent = "";
+  requestAnimationFrame(positionOverlay);
+}
+
 export function initNiaCanvasBridge() {
   window.parent.postMessage(
     { source: "nia-canvas", kind: "nia:ready", url: location.href },
@@ -172,9 +196,34 @@ export function initNiaCanvasBridge() {
 
   window.addEventListener("message", (event) => {
     if (event.origin !== NIA_SHELL_ORIGIN) return;
-    const data = event.data as { source?: string; kind?: string; selector?: string };
-    if (data?.source !== "nia-shell" || data?.kind !== "nia:inspect-request") return;
-    inspectSelector(data.selector || "body");
+    const data = event.data as {
+      source?: string;
+      kind?: string;
+      selector?: string;
+      property?: string;
+      value?: string;
+      inspectSelector?: string;
+    };
+    if (data?.source !== "nia-shell") return;
+
+    if (data.kind === "nia:inspect-request") {
+      inspectSelector(data.selector || "body");
+      return;
+    }
+
+    if (data.kind === "nia:style-preview") {
+      previewStyleChange(
+        data.selector || "",
+        data.property || "",
+        data.value || "",
+        data.inspectSelector || data.selector || "body",
+      );
+      return;
+    }
+
+    if (data.kind === "nia:style-preview-clear") {
+      clearStylePreview();
+    }
   });
 
   window.addEventListener("resize", positionOverlay);
