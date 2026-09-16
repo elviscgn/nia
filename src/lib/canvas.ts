@@ -75,3 +75,30 @@ export function requestCanvasInspect(iframe: HTMLIFrameElement | null, selector:
     CANVAS_ORIGIN,
   );
 }
+
+export function previewCanvasStyle(
+  iframe: HTMLIFrameElement | null,
+  selector: string,
+  property: string,
+  value: string,
+  inspectSelector: string,
+) {
+  iframe?.contentWindow?.postMessage(
+    {
+      source: "nia-shell",
+      kind: "nia:style-preview",
+      selector,
+      property,
+      value,
+      inspectSelector,
+    },
+    CANVAS_ORIGIN,
+  );
+}
+
+export function clearCanvasStylePreview(iframe: HTMLIFrameElement | null) {
+  iframe?.contentWindow?.postMessage(
+    { source: "nia-shell", kind: "nia:style-preview-clear" },
+    CANVAS_ORIGIN,
+  );
+}
