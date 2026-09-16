@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type CanvasRect = { x: number; y: number; width: number; height: number };
+export type CanvasMode = "inspect" | "interact";
 
 export type CanvasSourceRef = {
   file: string;
@@ -95,6 +96,13 @@ export function parseCanvasMessage(event: MessageEvent): CanvasInbound | null {
     return { kind: "nia:select", selection: data.selection };
   }
   return null;
+}
+
+export function setCanvasMode(iframe: HTMLIFrameElement | null, mode: CanvasMode) {
+  iframe?.contentWindow?.postMessage(
+    { source: "nia-shell", kind: "nia:mode", mode },
+    CANVAS_ORIGIN,
+  );
 }
 
 export function requestCanvasInspect(iframe: HTMLIFrameElement | null, selector: string) {
