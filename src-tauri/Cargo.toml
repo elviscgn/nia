@@ -5,10 +5,10 @@ description = "Nia architecture spike"
 edition = "2024"
 
 [build-dependencies]
-tauri-build = { version = "=3.0.0-alpha.0" }
+tauri-build = { version = "=3.0.0-alpha.0", features = [] }
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
-tauri = { version = "=3.0.0-alpha.1" }
+tauri = { version = "=3.0.0-alpha.1", features = [] }
 tauri-runtime-cef = { version = "=3.0.0-alpha.1", features = ["devtools"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs"] }
