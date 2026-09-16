@@ -8,6 +8,7 @@ export type CanvasSourceRef = {
   column: number;
   styleFile: string;
   styleSelector: string;
+  styleLine: number;
 };
 
 export type CanvasSelection = {
@@ -38,10 +39,8 @@ export const CANVAS_ORIGIN = "http://127.0.0.1:1421";
 export const canvasSampleUrl = () => invoke<string>("canvas_sample_url");
 export const canvasStatus = () => invoke<CanvasStatus>("canvas_status");
 
-export async function canvasReportSelection(selection: CanvasSelection) {
-  await invoke("canvas_report_selection", { selection });
-  return invoke<CanvasSelection | null>("canvas_selection");
-}
+export const canvasReportSelection = (selection: CanvasSelection) =>
+  invoke<CanvasSelection>("canvas_report_selection", { selection });
 
 export const canvasSelection = () => invoke<CanvasSelection | null>("canvas_selection");
 export const canvasClearSelection = () => invoke<void>("canvas_clear_selection");
@@ -62,10 +61,17 @@ export type CanvasInbound =
 
 export function parseCanvasMessage(event: MessageEvent): CanvasInbound | null {
   if (event.origin !== CANVAS_ORIGIN) return null;
-  const data = event.data as { source?: string; kind?: string; selection?: CanvasSelection; url?: string };
+  const data = event.data as {
+    source?: string;
+    kind?: string;
+    selection?: CanvasSelection;
+    url?: string;
+  };
   if (data?.source !== "nia-canvas") return null;
   if (data.kind === "nia:ready") return { kind: "nia:ready", url: data.url ?? "" };
-  if (data.kind === "nia:select" && data.selection) return { kind: "nia:select", selection: data.selection };
+  if (data.kind === "nia:select" && data.selection) {
+    return { kind: "nia:select", selection: data.selection };
+  }
   return null;
 }
 
