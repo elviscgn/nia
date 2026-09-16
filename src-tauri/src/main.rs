@@ -342,8 +342,11 @@ where
 }
 
 fn main() {
+    let dev_cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/cef-dev-profile");
+    let cef = tauri_runtime_cef::Cef::default().root_cache_path(dev_cache);
+
     tauri::Builder::default()
-        .runtime(tauri_runtime_cef::Cef::default())
+        .runtime(cef)
         .manage(CoreStarted(Instant::now()))
         .manage(CanvasState {
             selection: Mutex::new(None),
