@@ -2,6 +2,7 @@
 // Runs inside the sample page and reports plain JSON back to the Nia shell.
 
 export type CanvasRect = { x: number; y: number; width: number; height: number };
+export type CanvasMode = "inspect" | "interact";
 
 export type CanvasSourceRef = {
   file: string;
@@ -130,6 +131,7 @@ export function postSelection(selection: CanvasSelection) {
   );
 }
 
+let mode: CanvasMode = "inspect";
 let highlighted: Element | null = null;
 let overlay: HTMLDivElement | null = null;
 let previewStyle: HTMLStyleElement | null = null;
@@ -158,13 +160,24 @@ function ensurePreviewStyle() {
 }
 
 function positionOverlay() {
-  if (!highlighted) return;
+  if (!highlighted || mode !== "inspect") return;
   const rect = highlighted.getBoundingClientRect();
   const target = ensureOverlay();
+  target.style.display = "block";
   target.style.left = `${rect.left}px`;
   target.style.top = `${rect.top}px`;
   target.style.width = `${rect.width}px`;
   target.style.height = `${rect.height}px`;
+}
+
+function setMode(nextMode: CanvasMode) {
+  mode = nextMode;
+  document.documentElement.dataset.niaCanvasMode = nextMode;
+  if (nextMode === "inspect") {
+    positionOverlay();
+  } else if (overlay) {
+    overlay.style.display = "none";
+  }
 }
 
 export function highlight(el: Element) {
@@ -203,14 +216,28 @@ function clearStylePreview() {
 }
 
 export function initNiaCanvasBridge() {
+  setMode("inspect");
+
   window.parent.postMessage(
     { source: "nia-canvas", kind: "nia:ready", url: location.href },
     NIA_SHELL_ORIGIN,
   );
 
   document.addEventListener(
+    "pointermove",
+    (event) => {
+      if (mode !== "inspect") return;
+      const el = event.target instanceof Element ? event.target : null;
+      if (!el || el === overlay) return;
+      highlight(el);
+    },
+    true,
+  );
+
+  document.addEventListener(
     "click",
     (event) => {
+      if (mode !== "inspect") return;
       event.preventDefault();
       event.stopPropagation();
       const el = event.target instanceof Element ? event.target : document.body;
@@ -230,8 +257,14 @@ export function initNiaCanvasBridge() {
       property?: string;
       value?: string;
       inspectSelector?: string;
+      mode?: CanvasMode;
     };
     if (data?.source !== "nia-shell") return;
+
+    if (data.kind === "nia:mode") {
+      setMode(data.mode === "interact" ? "interact" : "inspect");
+      return;
+    }
 
     if (data.kind === "nia:inspect-request") {
       inspectSelector(data.selector || "body");
