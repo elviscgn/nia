@@ -1,11 +1,60 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
+import {
+  CANVAS_ORIGIN,
+  canvasCdpEvaluate,
+  canvasReportSelection,
+  canvasStatus,
+  parseCanvasMessage,
+  requestCanvasInspect,
+  type CanvasSelection,
+  type CanvasStatus,
+} from "./lib/canvas";
 
 export default function App() {
   const [health, setHealth] = useState<CoreHealth | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
+  const [selection, setSelection] = useState<CanvasSelection | null>(null);
+  const [canvas, setCanvas] = useState<CanvasStatus | null>(null);
+  const [cdp, setCdp] = useState<string>("cdp: …");
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const autoInspected = useRef(false);
 
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
+  useEffect(() => { canvasStatus().then(setCanvas).catch(() => {}); }, []);
+
+  // CDP self-check: evaluate JS in this webview through Rust's DevTools
+  // protocol path and show the answer.
+  useEffect(() => {
+    canvasCdpEvaluate("({title: document.title, url: location.href})")
+      .then((v) => setCdp(`cdp: ok ${JSON.stringify(v)}`))
+      .catch((e) => setCdp(`cdp: error ${String(e)}`));
+  }, []);
+
+  // Canvas bridge: ready / click-selection messages from the sample iframe.
+  // Every selection round-trips through Rust before it is displayed.
+  useEffect(() => {
+    async function onMessage(event: MessageEvent) {
+      const msg = parseCanvasMessage(event);
+      if (!msg) return;
+      if (msg.kind === "nia:ready") {
+        setCanvas((c) => (c ? { ...c, reachable: true } : c));
+        // Automatic end-to-end check: inspect the sample hero without clicks.
+        if (!autoInspected.current) {
+          autoInspected.current = true;
+          requestCanvasInspect(iframeRef.current, "#hero-title");
+        }
+      } else {
+        try {
+          setSelection(await canvasReportSelection(msg.selection));
+        } catch {
+          setSelection(msg.selection);
+        }
+      }
+    }
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
 
   async function benchmark() {
     const samples: number[] = [];
@@ -32,16 +81,24 @@ export default function App() {
       <section className="center">
         <div className="canvasToolbar"><span>↖ &nbsp; ✋</span><span>Desktop · 1440 × 900</span><span>Fit &nbsp; 100%</span></div>
         <div className="canvas">
-          <div className="browser"><div className="browserBar"><span>● ● ●</span><div>localhost:5173</div></div>
-            <div className="site"><div className="siteNav"><b>Nia</b><span>Product &nbsp; Docs &nbsp; About</span></div>
-              <div className="hero"><label>HeroHeading · HeroSection.tsx:28</label><h1>From ideas to interfaces.</h1><p>A visual coding workspace for humans and agents.</p><button>Start building</button></div>
-            </div>
+          <div className="browser"><div className="browserBar"><span>● ● ●</span><div>{CANVAS_ORIGIN}</div><span className="pill">{canvas ? (canvas.reachable ? "canvas: live" : "canvas: down") : "canvas: …"}</span><button onClick={() => { if (iframeRef.current) iframeRef.current.src = CANVAS_ORIGIN; }}>Reload</button></div>
+            <iframe ref={iframeRef} className="canvasFrame" title="Nia canvas" src={CANVAS_ORIGIN} />
           </div>
         </div>
-        <div className="terminal"><div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div><pre>nia › dev server ready in 421ms\nwatching source · HMR connected · CEF canvas online</pre></div>
+        <div className="terminal"><div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div><pre>{cdp}{"\n"}nia › dev server ready · CEF canvas online</pre></div>
       </section>
 
-      <aside className="inspector"><div className="tabs"><b>Inspect</b><span>Components</span><span>Page</span></div><div className="selection"><small>SELECTED</small><strong>HeroHeading</strong><span>React component</span><button>HeroSection.tsx · 28 ↗</button></div><section><b>Layout</b><p>Display &nbsp; flex</p><p>Gap &nbsp; 24</p></section><section><b>Typography</b><p>Size &nbsp; 72</p><p>Weight &nbsp; 700</p></section><div className="perf"><div><span>Rust IPC</span><strong>{latency === null ? "—" : `${latency.toFixed(2)} ms`}</strong></div><button onClick={benchmark}>Benchmark ×20</button></div></aside>
+      <aside className="inspector"><div className="tabs"><b>Inspect</b><span>Components</span><span>Page</span></div>
+        {selection ? <div className="selectionLive">
+          <small>SELECTED · VIA RUST</small>
+          <strong>{selection.tag}{selection.id ? `#${selection.id}` : ""}{selection.classes.map((c) => `.${c}`).join("")}</strong>
+          <div className="kv"><span>box</span><span>{selection.rect.x}, {selection.rect.y} · {selection.rect.width} × {selection.rect.height}</span></div>
+          <div className="kv"><span>text</span><span>{selection.text || "—"}</span></div>
+          <section><b>DOM path</b><ol>{selection.path.map((p) => <li key={p}>{p}</li>)}</ol></section>
+          <section><b>Computed</b>{Object.entries(selection.styles).map(([k, v]) => <p key={k}>{k} &nbsp; {v}</p>)}</section>
+        </div> : <div className="selection"><small>SELECTED</small><strong>Nothing yet</strong><span>Click an element in the canvas…</span></div>}
+        <div className="perf"><div><span>Rust IPC</span><strong>{latency === null ? "—" : `${latency.toFixed(2)} ms`}</strong></div><button onClick={benchmark}>Benchmark ×20</button></div>
+      </aside>
     </section>
   </main>;
 }
