@@ -281,11 +281,11 @@ fn selector_score(rule: &str, selection: &CanvasSelection) -> i32 {
 }
 
 fn resolve_style_source(selection: &mut CanvasSelection, style_index: &StyleIndex) {
-    let Some(source) = selection.source.as_mut() else {
+    let Some(source_file) = selection.source.as_ref().map(|source| source.file.clone()) else {
         return;
     };
 
-    let source_parent = Path::new(&source.file)
+    let source_parent = Path::new(&source_file)
         .parent()
         .map(|path| path.to_string_lossy().replace('\\', "/"));
 
@@ -293,27 +293,30 @@ fn resolve_style_source(selection: &mut CanvasSelection, style_index: &StyleInde
         return;
     };
 
-    let mut best: Option<(i32, &StyleRuleRef)> = None;
-    for rule in rules.iter() {
-        let mut score = selector_score(&rule.selector, selection);
-        if score == 0 {
-            continue;
-        }
-
-        if let Some(parent) = &source_parent {
-            if rule.file.starts_with(parent) {
-                score += 20;
+    let best = rules
+        .iter()
+        .filter_map(|rule| {
+            let mut score = selector_score(&rule.selector, selection);
+            if score == 0 {
+                return None;
             }
-        }
 
-        if best.map(|(current, _)| score > current).unwrap_or(true) {
-            best = Some((score, rule));
-        }
-    }
+            if let Some(parent) = &source_parent {
+                if rule.file.starts_with(parent) {
+                    score += 20;
+                }
+            }
 
-    if let Some((_, rule)) = best {
-        source.style_file = rule.file.clone();
-        source.style_selector = rule.selector.clone();
+            Some((score, rule))
+        })
+        .max_by_key(|(score, _)| *score)
+        .map(|(_, rule)| rule.clone());
+
+    drop(rules);
+
+    if let (Some(source), Some(rule)) = (selection.source.as_mut(), best) {
+        source.style_file = rule.file;
+        source.style_selector = rule.selector;
         source.style_line = rule.line;
     }
 }
