@@ -7,6 +7,7 @@ import {
   canvasReportSelection,
   canvasSetStylePx,
   canvasStatus,
+  canvasStyleIndexState,
   canvasUndoStyle,
   clearCanvasStylePreview,
   parseCanvasMessage,
@@ -15,6 +16,7 @@ import {
   type CanvasSelection,
   type CanvasStatus,
   type CanvasStylePatchResult,
+  type StyleIndexState,
 } from "./lib/canvas";
 
 export default function App() {
@@ -22,6 +24,7 @@ export default function App() {
   const [latency, setLatency] = useState<number | null>(null);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [canvas, setCanvas] = useState<CanvasStatus | null>(null);
+  const [styleIndex, setStyleIndex] = useState<StyleIndexState | null>(null);
   const [cdp, setCdp] = useState<string>("cdp: ...");
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
@@ -32,6 +35,21 @@ export default function App() {
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
   useEffect(() => { canvasStatus().then(setCanvas).catch(() => {}); }, []);
   useEffect(() => { canvasHistoryState().then((state) => setUndoDepth(state.undoDepth)).catch(() => {}); }, []);
+
+  useEffect(() => {
+    let active = true;
+    const refresh = () => {
+      canvasStyleIndexState()
+        .then((state) => { if (active) setStyleIndex(state); })
+        .catch(() => {});
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 1000);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     canvasCdpEvaluate("({title: document.title, url: location.href})")
@@ -67,18 +85,18 @@ export default function App() {
     setLatency(samples.reduce((a, b) => a + b, 0) / samples.length);
   }
 
-  async function changeFontSize(delta: number) {
+  async function changeNumericStyle(property: string, computedKey: string, delta: number) {
     if (!selection?.source?.styleFile || !selection.source.styleSelector) return;
-    const current = Number.parseFloat(selection.styles.fontSize ?? "");
+    const current = Number.parseFloat(selection.styles[computedKey] ?? "");
     if (!Number.isFinite(current)) return;
 
-    const next = Math.max(1, current + delta);
+    const next = Math.max(0, current + delta);
     const nextValue = `${next}px`;
 
     previewCanvasStyle(
       iframeRef.current,
       selection.source.styleSelector,
-      "font-size",
+      property,
       nextValue,
       selection.selector,
     );
@@ -88,7 +106,7 @@ export default function App() {
       const patch = await canvasSetStylePx(
         selection.source.styleFile,
         selection.source.styleSelector,
-        "font-size",
+        property,
         next,
       );
       setLastPatch(patch);
@@ -118,6 +136,9 @@ export default function App() {
       window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector), 250);
     }
   }
+
+  const hasNumericStyle = (key: string) =>
+    Number.isFinite(Number.parseFloat(selection?.styles[key] ?? ""));
 
   return <main className="app">
     <header className="topbar">
@@ -154,8 +175,12 @@ export default function App() {
             <code>{selection.source.file}:{selection.source.line}:{selection.source.column}</code>
             <span>{selection.source.styleSelector} · {selection.source.styleFile}{selection.source.styleLine ? `:${selection.source.styleLine}` : ""}</span>
             <div className="sourceActions">
-              <button onClick={() => changeFontSize(-4)}>Font -4</button>
-              <button onClick={() => changeFontSize(4)}>Font +4</button>
+              <button disabled={!hasNumericStyle("fontSize")} onClick={() => changeNumericStyle("font-size", "fontSize", -4)}>Font -4</button>
+              <button disabled={!hasNumericStyle("fontSize")} onClick={() => changeNumericStyle("font-size", "fontSize", 4)}>Font +4</button>
+              <button disabled={!hasNumericStyle("gap")} onClick={() => changeNumericStyle("gap", "gap", -4)}>Gap -4</button>
+              <button disabled={!hasNumericStyle("gap")} onClick={() => changeNumericStyle("gap", "gap", 4)}>Gap +4</button>
+              <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", -4)}>Radius -4</button>
+              <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", 4)}>Radius +4</button>
               <button disabled={undoDepth === 0} onClick={undoLastStyleEdit}>Undo {undoDepth ? `(${undoDepth})` : ""}</button>
             </div>
             {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
@@ -165,7 +190,11 @@ export default function App() {
           <section><b>DOM path</b><ol>{selection.path.map((part, index) => <li key={`${part}-${index}`}>{part}</li>)}</ol></section>
           <section><b>Computed</b>{Object.entries(selection.styles).map(([key, value]) => <p key={key}>{key} &nbsp; {value}</p>)}</section>
         </div> : <div className="selection"><small>SELECTED</small><strong>Nothing yet</strong><span>Click an element in the canvas...</span></div>}
-        <div className="perf"><div><span>Rust IPC</span><strong>{latency === null ? "-" : `${latency.toFixed(2)} ms`}</strong></div><button onClick={benchmark}>Benchmark ×20</button></div>
+        <div className="perf">
+          <div><span>Rust IPC</span><strong>{latency === null ? "-" : `${latency.toFixed(2)} ms`}</strong></div>
+          <div><span>CSS index</span><strong>{styleIndex ? `v${styleIndex.version} · ${styleIndex.ruleCount} rules` : "..."}</strong></div>
+          <button onClick={benchmark}>Benchmark ×20</button>
+        </div>
       </aside>
     </section>
   </main>;
