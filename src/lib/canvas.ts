@@ -2,6 +2,14 @@ import { invoke } from "@tauri-apps/api/core";
 
 export type CanvasRect = { x: number; y: number; width: number; height: number };
 
+export type CanvasSourceRef = {
+  file: string;
+  line: number;
+  column: number;
+  styleFile: string;
+  styleSelector: string;
+};
+
 export type CanvasSelection = {
   tag: string;
   id: string;
@@ -12,17 +20,24 @@ export type CanvasSelection = {
   styles: Record<string, string>;
   text: string;
   sourceUrl: string;
+  source: CanvasSourceRef | null;
 };
 
 export type CanvasStatus = { url: string; reachable: boolean; latencyMs: number };
+
+export type CanvasStylePatchResult = {
+  file: string;
+  selector: string;
+  property: string;
+  previousValue: string | null;
+  value: string;
+};
 
 export const CANVAS_ORIGIN = "http://127.0.0.1:1421";
 
 export const canvasSampleUrl = () => invoke<string>("canvas_sample_url");
 export const canvasStatus = () => invoke<CanvasStatus>("canvas_status");
 
-// Round-trip through Rust on purpose: the shell reports the selection, then
-// reads it back, so the inspector always renders what Rust holds.
 export async function canvasReportSelection(selection: CanvasSelection) {
   await invoke("canvas_report_selection", { selection });
   return invoke<CanvasSelection | null>("canvas_selection");
@@ -31,10 +46,15 @@ export async function canvasReportSelection(selection: CanvasSelection) {
 export const canvasSelection = () => invoke<CanvasSelection | null>("canvas_selection");
 export const canvasClearSelection = () => invoke<void>("canvas_clear_selection");
 
-// Arbitrary JS evaluated in the Nia webview via the CEF DevTools protocol
-// (Runtime.evaluate, returnByValue). Proves the Rust CDP path end to end.
 export const canvasCdpEvaluate = (expression: string) =>
   invoke<unknown>("canvas_cdp_evaluate", { expression });
+
+export const canvasSetStylePx = (
+  file: string,
+  selector: string,
+  property: string,
+  valuePx: number,
+) => invoke<CanvasStylePatchResult>("canvas_set_style_px", { file, selector, property, valuePx });
 
 export type CanvasInbound =
   | { kind: "nia:ready"; url: string }
