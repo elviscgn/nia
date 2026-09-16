@@ -10,8 +10,23 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [{"title":"Nia","width":1480,"height":940,"minWidth":980,"minHeight":680,"resizable":true}],
-    "security": {"csp": null}
+    "windows": [
+      {
+        "title": "Nia",
+        "width": 1480,
+        "height": 940,
+        "minWidth": 980,
+        "minHeight": 680,
+        "resizable": true
+      }
+    ],
+    "security": {
+      "csp": null
+    }
   },
-  "bundle": {"active": true,"targets": "all"}
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": []
+  }
 }
