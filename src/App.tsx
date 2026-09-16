@@ -13,6 +13,8 @@ import {
   parseCanvasMessage,
   previewCanvasStyle,
   requestCanvasInspect,
+  setCanvasMode as postCanvasMode,
+  type CanvasMode,
   type CanvasSelection,
   type CanvasStatus,
   type CanvasStylePatchResult,
@@ -24,6 +26,7 @@ export default function App() {
   const [latency, setLatency] = useState<number | null>(null);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [canvas, setCanvas] = useState<CanvasStatus | null>(null);
+  const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
   const [styleIndex, setStyleIndex] = useState<StyleIndexState | null>(null);
   const [cdp, setCdp] = useState<string>("cdp: ...");
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
@@ -36,6 +39,7 @@ export default function App() {
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
   useEffect(() => { canvasStatus().then(setCanvas).catch(() => {}); }, []);
   useEffect(() => { canvasHistoryState().then((state) => setUndoDepth(state.undoDepth)).catch(() => {}); }, []);
+  useEffect(() => { postCanvasMode(iframeRef.current, canvasMode); }, [canvasMode]);
 
   useEffect(() => {
     let active = true;
@@ -72,6 +76,7 @@ export default function App() {
       if (!msg) return;
       if (msg.kind === "nia:ready") {
         setCanvas((current) => (current ? { ...current, reachable: true } : current));
+        postCanvasMode(iframeRef.current, "inspect");
         if (!autoInspected.current) {
           autoInspected.current = true;
           requestCanvasInspect(iframeRef.current, "#hero-title");
@@ -149,6 +154,11 @@ export default function App() {
     }
   }
 
+  function switchCanvasMode(nextMode: CanvasMode) {
+    setCanvasMode(nextMode);
+    postCanvasMode(iframeRef.current, nextMode);
+  }
+
   const hasNumericStyle = (key: string) =>
     Number.isFinite(Number.parseFloat(selection?.styles[key] ?? ""));
 
@@ -169,7 +179,14 @@ export default function App() {
       </aside>
 
       <section className="center">
-        <div className="canvasToolbar"><span>↖ &nbsp; ✋</span><span>Desktop · 1440 × 900</span><span>Fit &nbsp; 100%</span></div>
+        <div className="canvasToolbar">
+          <span>
+            <button className={canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
+            <button className={canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
+          </span>
+          <span>Desktop · 1440 × 900</span>
+          <span>Fit &nbsp; 100%</span>
+        </div>
         <div className="canvas">
           <div className="browser"><div className="browserBar"><span>● ● ●</span><div>{CANVAS_ORIGIN}</div><span className="pill">{canvas ? (canvas.reachable ? "canvas: live" : "canvas: down") : "canvas: ..."}</span><button onClick={() => { if (iframeRef.current) iframeRef.current.src = CANVAS_ORIGIN; }}>Reload</button></div>
             <iframe ref={iframeRef} className="canvasFrame" title="Nia canvas" src={CANVAS_ORIGIN} />
