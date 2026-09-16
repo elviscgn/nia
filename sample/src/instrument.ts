@@ -9,6 +9,7 @@ export type CanvasSourceRef = {
   column: number;
   styleFile: string;
   styleSelector: string;
+  styleLine: number;
 };
 
 export type CanvasSelection = {
@@ -25,7 +26,6 @@ export type CanvasSelection = {
 };
 
 export const NIA_SHELL_ORIGIN = "http://127.0.0.1:1420";
-const SAMPLE_STYLE_FILE = "sample/src/styles.css";
 
 const STYLE_PROPS = [
   "display",
@@ -47,26 +47,23 @@ const STYLE_PROPS = [
 ] as const;
 
 function cssEscape(value: string) {
-  return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  return typeof CSS !== "undefined" && CSS.escape
+    ? CSS.escape(value)
+    : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
 function describePart(el: Element): string {
   const tag = el.tagName.toLowerCase();
   if (el.id) return `${tag}#${cssEscape(el.id)}`;
 
-  const classes = Array.from(el.classList).map((cls) => `.${cssEscape(cls)}`).join("");
+  const classes = Array.from(el.classList)
+    .map((className) => `.${cssEscape(className)}`)
+    .join("");
   const siblings = el.parentElement
     ? Array.from(el.parentElement.children).filter((node) => node.tagName === el.tagName)
     : [];
   const nth = siblings.length > 1 ? `:nth-of-type(${siblings.indexOf(el) + 1})` : "";
   return `${tag}${classes}${nth}`;
-}
-
-function styleSelectorFor(el: Element) {
-  const firstClass = el.classList.item(0);
-  if (firstClass) return `.${cssEscape(firstClass)}`;
-  if (el.id) return `#${cssEscape(el.id)}`;
-  return el.tagName.toLowerCase();
 }
 
 function sourceFor(el: Element): CanvasSourceRef | null {
@@ -81,14 +78,15 @@ function sourceFor(el: Element): CanvasSourceRef | null {
     file,
     line: Number.isFinite(line) ? line : 0,
     column: Number.isFinite(column) ? column : 0,
-    styleFile: file.startsWith("sample/src/") ? SAMPLE_STYLE_FILE : "",
-    styleSelector: styleSelectorFor(el),
+    styleFile: "",
+    styleSelector: "",
+    styleLine: 0,
   };
 }
 
 export function describeElement(el: Element): CanvasSelection {
   const rect = el.getBoundingClientRect();
-  const round = (n: number) => Math.round(n * 10) / 10;
+  const round = (value: number) => Math.round(value * 10) / 10;
 
   const path: string[] = [];
   let node: Element | null = el;
@@ -100,7 +98,9 @@ export function describeElement(el: Element): CanvasSelection {
   const computed = getComputedStyle(el);
   const styles: Record<string, string> = {};
   for (const prop of STYLE_PROPS) {
-    const value = computed.getPropertyValue(prop.replace(/[A-Z]/g, (m) => `-${m.toLowerCase()}`));
+    const value = computed.getPropertyValue(
+      prop.replace(/[A-Z]/g, (match) => `-${match.toLowerCase()}`),
+    );
     if (value) styles[prop] = value.trim();
   }
 
@@ -108,7 +108,12 @@ export function describeElement(el: Element): CanvasSelection {
     tag: el.tagName.toLowerCase(),
     id: el.id || "",
     classes: Array.from(el.classList),
-    rect: { x: round(rect.x), y: round(rect.y), width: round(rect.width), height: round(rect.height) },
+    rect: {
+      x: round(rect.x),
+      y: round(rect.y),
+      width: round(rect.width),
+      height: round(rect.height),
+    },
     path,
     selector: path.join(" > "),
     styles,
@@ -119,7 +124,10 @@ export function describeElement(el: Element): CanvasSelection {
 }
 
 export function postSelection(selection: CanvasSelection) {
-  window.parent.postMessage({ source: "nia-canvas", kind: "nia:select", selection }, NIA_SHELL_ORIGIN);
+  window.parent.postMessage(
+    { source: "nia-canvas", kind: "nia:select", selection },
+    NIA_SHELL_ORIGIN,
+  );
 }
 
 let highlighted: Element | null = null;
@@ -171,8 +179,16 @@ function inspectSelector(selector: string) {
   postSelection(describeElement(el));
 }
 
-function previewStyleChange(selector: string, property: string, value: string, inspectTarget: string) {
-  if (!selector.trim() || !/^[a-z-]+$/i.test(property) || !/^-?\d+(?:\.\d+)?px$/.test(value)) return;
+function previewStyleChange(
+  selector: string,
+  property: string,
+  value: string,
+  inspectTarget: string,
+) {
+  if (!selector.trim() || !/^[a-z-]+$/i.test(property) || !/^-?\d+(?:\.\d+)?px$/.test(value)) {
+    return;
+  }
+
   const style = ensurePreviewStyle();
   style.textContent = `${selector} { ${property}: ${value} !important; }`;
 
@@ -240,7 +256,7 @@ export function initNiaCanvasBridge() {
   window.addEventListener("resize", positionOverlay);
   window.addEventListener("scroll", positionOverlay, true);
 
-  (window as unknown as { __niaInspect: (s?: string) => CanvasSelection | null }).__niaInspect = (
+  (window as unknown as { __niaInspect: (selector?: string) => CanvasSelection | null }).__niaInspect = (
     selector = "body",
   ) => {
     const el = document.querySelector(selector);
