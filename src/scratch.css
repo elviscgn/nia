@@ -1,97 +1,48 @@
+.niaRoot {
+  width: 100%;
+  height: 100%;
+}
+
 .center {
   position: relative;
+}
+
+.niaRoot.scratchMode .workspace {
+  grid-template-columns: 50px 308px minmax(560px, 1fr);
+}
+
+.niaRoot.scratchMode .inspector {
+  display: none;
+}
+
+.niaRoot.scratchMode .topbar nav button:first-child {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+}
+
+.niaRoot.scratchMode .topbar nav button:nth-child(4) {
+  border-color: #dedcd5;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .06);
+  color: #181816;
 }
 
 .scratchWorkspace {
   position: absolute;
   inset: 0;
   z-index: 20;
-  display: grid;
-  grid-template-rows: 42px minmax(0, 1fr);
   background: #efeee9;
   color: #181816;
 }
 
-.scratchTopbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 0 12px;
-  border-bottom: 1px solid #d7d5ce;
-  background: #f8f7f3;
-}
-
-.scratchTopbar > div:first-child {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  min-width: 0;
-}
-
-.scratchTopbar strong {
-  font-size: 13px;
-  letter-spacing: -.01em;
-}
-
-.scratchTopbar span {
-  color: #817c73;
-  font-size: 11px;
-}
-
-.scratchActions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.scratchActions button,
-.scratchTabs button {
-  border: 1px solid #d7d5ce;
-  border-radius: 6px;
-  background: #fff;
-  color: #302e29;
-  font: inherit;
-  font-size: 11px;
-  cursor: pointer;
-}
-
-.scratchActions button {
-  height: 28px;
-  padding: 0 9px;
-}
-
-.scratchActions button:hover,
-.scratchTabs button:hover {
-  border-color: #bdb9af;
-  background: #faf9f6;
-}
-
-.scratchActions .scratchClose {
-  border-color: #b57b00;
-  background: #d59a10;
-  color: #1c170b;
-  font-weight: 700;
-}
-
-.scratchLive {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.scratchLive::before {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #b87c00;
-  content: "";
-}
-
 .scratchBody {
+  width: 100%;
+  height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr);
+  grid-template-columns: minmax(320px, .82fr) minmax(520px, 1.18fr);
   gap: 1px;
   background: #d7d5ce;
 }
@@ -120,9 +71,20 @@
 .scratchTabs button {
   height: 32px;
   padding: 0 10px;
+  border: 1px solid #d7d5ce;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
+  border-radius: 6px 6px 0 0;
+  background: #fff;
   color: #716d65;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.scratchTabs button:hover {
+  border-color: #bdb9af;
+  background: #faf9f6;
 }
 
 .scratchTabs button.active {
@@ -141,10 +103,10 @@
   resize: none;
   border: 0;
   outline: 0;
-  padding: 16px 18px 26px;
+  padding: 18px 20px 28px;
   background: #fff;
   color: #282621;
-  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 12px/1.62 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   tab-size: 2;
 }
 
@@ -165,24 +127,60 @@
 
 .scratchPreviewPane {
   display: grid;
-  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-rows: 38px minmax(0, 1fr);
 }
 
 .scratchPreviewBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  gap: 12px;
+  padding: 0 10px 0 12px;
   border-bottom: 1px solid #dedcd5;
   background: #f8f7f3;
   color: #77736b;
   font-size: 10px;
 }
 
-.scratchPreviewBar span:first-child {
+.scratchPreviewBar > span:first-child {
   color: #2a2823;
   font-weight: 700;
   font-size: 11px;
+}
+
+.scratchPreviewMeta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8b6505;
+}
+
+.scratchPreviewMeta span::before {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
+  border-radius: 50%;
+  background: #b87c00;
+  vertical-align: 1px;
+}
+
+.scratchPreviewMeta button {
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid #d7d5ce;
+  border-radius: 6px;
+  background: #fff;
+  color: #4d4942;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.scratchPreviewMeta button:hover {
+  border-color: #bdb9af;
+  background: #faf9f6;
 }
 
 .scratchPreview {
@@ -192,12 +190,12 @@
   background: #fff;
 }
 
-@media (max-width: 1100px) {
-  .scratchBody {
-    grid-template-columns: minmax(280px, .9fr) minmax(360px, 1.1fr);
+@media (max-width: 1180px) {
+  .niaRoot.scratchMode .workspace {
+    grid-template-columns: 50px 270px minmax(520px, 1fr);
   }
 
-  .scratchTopbar > div:first-child span {
-    display: none;
+  .scratchBody {
+    grid-template-columns: minmax(300px, .92fr) minmax(420px, 1.08fr);
   }
 }
