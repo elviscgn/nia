@@ -23,7 +23,27 @@ body { margin: 0; font-family: Inter, ui-sans-serif, system-ui, sans-serif; colo
 .text-\[96px\] { font-size: 96px; }
 .sub { font-size: 18px; color: #55524c; margin: 0 0 24px; }
 .cta { background: #d7a11c; border: 0; border-radius: 8px; padding: 10px 18px; font-weight: 600; cursor: pointer; }
-.cards { display: flex; gap: 16px; margin-top: 40px; }
-.card { flex: 1; border: 1px solid #e5e3dd; border-radius: 12px; padding: 16px; background: #faf9f6; }
+.cards { display: flex; margin-top: 40px; }
+.gap-\[0px\] { gap: 0; }
+.gap-\[4px\] { gap: 4px; }
+.gap-\[8px\] { gap: 8px; }
+.gap-\[12px\] { gap: 12px; }
+.gap-\[16px\] { gap: 16px; }
+.gap-\[20px\] { gap: 20px; }
+.gap-\[24px\] { gap: 24px; }
+.gap-\[28px\] { gap: 28px; }
+.gap-\[32px\] { gap: 32px; }
+.gap-\[36px\] { gap: 36px; }
+.gap-\[40px\] { gap: 40px; }
+.card { flex: 1; border: 1px solid #e5e3dd; padding: 16px; background: #faf9f6; }
+.rounded-\[0px\] { border-radius: 0; }
+.rounded-\[4px\] { border-radius: 4px; }
+.rounded-\[8px\] { border-radius: 8px; }
+.rounded-\[12px\] { border-radius: 12px; }
+.rounded-\[16px\] { border-radius: 16px; }
+.rounded-\[20px\] { border-radius: 20px; }
+.rounded-\[24px\] { border-radius: 24px; }
+.rounded-\[28px\] { border-radius: 28px; }
+.rounded-\[32px\] { border-radius: 32px; }
 .card h2 { margin: 0 0 6px; font-size: 16px; }
 .card p { margin: 0; color: #77746d; font-size: 14px; }
