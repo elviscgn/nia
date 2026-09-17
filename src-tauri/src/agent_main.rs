@@ -27,6 +27,36 @@ mod legacy {
         ScratchState,
     };
     use super::vision_core::{vision_get, vision_save, VisionState};
+    use crate::{
+        __cmd__model_settings_get,
+        __cmd__model_settings_save,
+        __cmd__model_test_connection,
+        __cmd__scratch_agent_clear_history,
+        __cmd__scratch_agent_history,
+        __cmd__scratch_agent_run,
+        __cmd__scratch_edit_part,
+        __cmd__scratch_get,
+        __cmd__scratch_report_selection,
+        __cmd__scratch_reset,
+        __cmd__scratch_set_style_px,
+        __cmd__scratch_undo,
+        __cmd__vision_get,
+        __cmd__vision_save,
+        __tauri_command_name_model_settings_get,
+        __tauri_command_name_model_settings_save,
+        __tauri_command_name_model_test_connection,
+        __tauri_command_name_scratch_agent_clear_history,
+        __tauri_command_name_scratch_agent_history,
+        __tauri_command_name_scratch_agent_run,
+        __tauri_command_name_scratch_edit_part,
+        __tauri_command_name_scratch_get,
+        __tauri_command_name_scratch_report_selection,
+        __tauri_command_name_scratch_reset,
+        __tauri_command_name_scratch_set_style_px,
+        __tauri_command_name_scratch_undo,
+        __tauri_command_name_vision_get,
+        __tauri_command_name_vision_save,
+    };
 
     include!("main.rs");
 
