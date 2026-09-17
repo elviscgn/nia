@@ -84,8 +84,18 @@ export default function App() {
       } else {
         try {
           const resolved = await canvasReportSelection(msg.selection);
+          const browserSource = msg.selection.source;
           const selectionWithTargets: CanvasSelection = {
             ...resolved,
+            source: resolved.source
+              ? {
+                  ...resolved.source,
+                  classFile: browserSource?.classFile,
+                  classLine: browserSource?.classLine,
+                  classColumn: browserSource?.classColumn,
+                  classValue: browserSource?.classValue,
+                }
+              : resolved.source,
             styleTargets: msg.selection.styleTargets ?? {},
           };
           selectionRef.current = selectionWithTargets;
@@ -170,7 +180,10 @@ export default function App() {
     const target = selection?.styleTargets?.[property];
     if (!target) return null;
     const owner = target.classToken ? `class ${target.classToken}` : target.selector;
-    return `${property} -> ${owner} · ${target.file}`;
+    const classSource = target.classToken && selection?.source?.classFile
+      ? ` @ ${selection.source.classFile}:${selection.source.classLine ?? 0}:${selection.source.classColumn ?? 0}`
+      : "";
+    return `${property} -> ${owner} · ${target.file}${classSource}`;
   };
 
   return <main className="app">
@@ -213,6 +226,7 @@ export default function App() {
           {selection.source ? <div className="sourceRef">
             <b>Source</b>
             <code>{selection.source.file}:{selection.source.line}:{selection.source.column}</code>
+            {selection.source.classValue ? <small>className "{selection.source.classValue}" · {selection.source.classFile}:{selection.source.classLine}:{selection.source.classColumn}</small> : null}
             <span>{selection.source.styleSelector} · {selection.source.styleFile}{selection.source.styleLine ? `:${selection.source.styleLine}` : ""}</span>
             <div className="sourceActions">
               <button disabled={!hasNumericStyle("fontSize")} onClick={() => changeNumericStyle("font-size", "fontSize", -4)}>Font -4</button>
