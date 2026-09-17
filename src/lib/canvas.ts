@@ -19,6 +19,10 @@ export type CanvasSourceRef = {
   styleFile: string;
   styleSelector: string;
   styleLine: number;
+  classFile?: string;
+  classLine?: number;
+  classColumn?: number;
+  classValue?: string;
 };
 
 export type CanvasSelection = {
