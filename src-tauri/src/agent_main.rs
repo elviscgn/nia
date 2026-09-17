@@ -1,14 +1,8 @@
 mod scratch_agent;
+mod scratch_core;
 
 mod legacy {
     include!("main.rs");
-
-    #[tauri::command]
-    async fn scratch_agent_run(
-        request: super::scratch_agent::ScratchAgentRequest,
-    ) -> Result<super::scratch_agent::ScratchAgentResponse, String> {
-        super::scratch_agent::scratch_agent_run(request).await
-    }
 
     pub fn run_with_scratch_agent() {
         let style_index = StyleIndex::start();
@@ -23,6 +17,7 @@ mod legacy {
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
+            .manage(super::scratch_core::ScratchState::load())
             .invoke_handler(tauri::generate_handler![
                 ping,
                 core_health,
@@ -38,7 +33,12 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
-                scratch_agent_run
+                super::scratch_core::scratch_get,
+                super::scratch_core::scratch_report_selection,
+                super::scratch_core::scratch_set_style_px,
+                super::scratch_core::scratch_undo,
+                super::scratch_core::scratch_reset,
+                super::scratch_agent::scratch_agent_run
             ])
             .run(tauri::generate_context!())
             .expect("error while running Nia");
