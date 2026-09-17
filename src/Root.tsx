@@ -14,16 +14,13 @@ export default function Root() {
     const openModelSettings = () => setModelSettingsOpen(true);
     const onClick = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target.closest("button") : null;
-      if (target?.textContent?.trim() === "Model · Auto") {
-        event.preventDefault();
-        openModelSettings();
-      }
+      if (!target) return;
+      if (!target.closest(".actions")) return;
+      if (!target.textContent?.trim().startsWith("Model")) return;
+      setModelSettingsOpen(true);
     };
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === ",") {
-        event.preventDefault();
-        openModelSettings();
-      }
+      if (event.key === "Escape") setModelSettingsOpen(false);
     };
 
     window.addEventListener("nia:open-model-settings", openModelSettings);
