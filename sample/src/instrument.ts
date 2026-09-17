@@ -10,6 +10,7 @@ export type CanvasStyleTarget = {
   property: string;
   value: string;
   important: boolean;
+  classToken?: string;
 };
 
 export type CanvasSourceRef = {
@@ -72,6 +73,14 @@ function cssEscape(value: string) {
   return typeof CSS !== "undefined" && CSS.escape
     ? CSS.escape(value)
     : value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
+function classTokenForSelector(selector: string, el: Element): string | undefined {
+  for (const className of Array.from(el.classList)) {
+    const escaped = `.${cssEscape(className)}`;
+    if (selector === escaped || selector.startsWith(`${escaped}:`)) return className;
+  }
+  return undefined;
 }
 
 function describePart(el: Element): string {
@@ -204,6 +213,7 @@ function styleTargetsFor(el: Element): Record<string, CanvasStyleTarget> {
             property,
             value,
             important: cssRule.style.getPropertyPriority(property) === "important",
+            classToken: classTokenForSelector(selector, el),
             specificity,
             order,
           };
@@ -241,6 +251,7 @@ function styleTargetsFor(el: Element): Record<string, CanvasStyleTarget> {
       property: candidate.property,
       value: candidate.value,
       important: candidate.important,
+      classToken: candidate.classToken,
     };
   }
   return targets;
