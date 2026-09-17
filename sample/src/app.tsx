@@ -31,12 +31,12 @@ export default function SampleApp() {
         <button id="hero-cta" className="cta primary" onClick={() => setClicks((count) => count + 1)}>
           {clicks === 0 ? "Start building" : `Clicked ${clicks}`}
         </button>
-        <section className="cards" id="feature-cards">
-          <article className="card" id="card-canvas">
+        <section className="cards gap-[16px]" id="feature-cards">
+          <article className="card rounded-[12px]" id="card-canvas">
             <h2>Canvas</h2>
             <p>See the running app.</p>
           </article>
-          <article className="card" id="card-inspect">
+          <article className="card rounded-[12px]" id="card-inspect">
             <h2>Inspect</h2>
             <p>Click anything.</p>
           </article>
