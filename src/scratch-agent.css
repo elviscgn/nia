@@ -198,3 +198,22 @@
   opacity: .35;
   cursor: default;
 }
+
+.scratchModeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 3px 7px;
+  border: 1px solid #ead18e;
+  border-radius: 999px;
+  background: #fff4d4;
+  color: #8a5d00;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.scratchModeBadge i {
+  font-style: normal;
+  font-size: 10px;
+}
