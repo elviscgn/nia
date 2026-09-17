@@ -133,12 +133,10 @@ impl VisionState {
     }
 }
 
-#[tauri::command]
 pub fn vision_get(state: tauri::State<'_, VisionState>) -> Result<VisionContextSnapshot, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn vision_save(
     input: VisionContextInput,
     state: tauri::State<'_, VisionState>,
