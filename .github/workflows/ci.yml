@@ -56,11 +56,22 @@ jobs:
       - name: Setup native build tools
         run: zsh scripts/setup-macos.sh
 
+      - name: Regenerate lockfile
+        run: cargo generate-lockfile --manifest-path src-tauri/Cargo.toml
+
       - name: Cargo check
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked
 
       - name: Cargo tests
         run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Upload generated lockfile
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cargo-lock
+          path: src-tauri/Cargo.lock
+          if-no-files-found: error
 
   macos-bundle:
     name: macOS app bundle
