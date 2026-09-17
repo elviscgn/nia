@@ -22,7 +22,7 @@ export default function SampleApp() {
         </nav>
       </header>
       <main className="sample-main">
-        <h1 id="hero-title" className="hero text-[56px]">
+        <h1 id="hero-title" className="hero text-6xl">
           From ideas to interfaces.
         </h1>
         <p id="hero-sub" className="sub">
@@ -31,12 +31,12 @@ export default function SampleApp() {
         <button id="hero-cta" className="cta primary" onClick={() => setClicks((count) => count + 1)}>
           {clicks === 0 ? "Start building" : `Clicked ${clicks}`}
         </button>
-        <section className="cards gap-[16px]" id="feature-cards">
-          <article className="card rounded-[12px]" id="card-canvas">
+        <section className="cards gap-4" id="feature-cards">
+          <article className="card rounded-xl" id="card-canvas">
             <h2>Canvas</h2>
             <p>See the running app.</p>
           </article>
-          <article className="card rounded-[12px]" id="card-inspect">
+          <article className="card rounded-xl" id="card-inspect">
             <h2>Inspect</h2>
             <p>Click anything.</p>
           </article>
