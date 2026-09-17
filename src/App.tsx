@@ -21,6 +21,12 @@ import {
   type StyleIndexState,
 } from "./lib/canvas";
 
+const EDITABLE_PROPERTIES = [
+  { property: "font-size", key: "fontSize", label: "Font size", step: 4 },
+  { property: "gap", key: "gap", label: "Gap", step: 4 },
+  { property: "border-radius", key: "borderRadius", label: "Radius", step: 4 },
+] as const;
+
 export default function App() {
   const [health, setHealth] = useState<CoreHealth | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
@@ -32,6 +38,7 @@ export default function App() {
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const selectionRef = useRef<CanvasSelection | null>(null);
   const autoInspected = useRef(false);
@@ -66,8 +73,8 @@ export default function App() {
 
   useEffect(() => {
     canvasCdpEvaluate("({title: document.title, url: location.href})")
-      .then((v) => setCdp(`cdp: ok ${JSON.stringify(v)}`))
-      .catch((e) => setCdp(`cdp: error ${String(e)}`));
+      .then((value) => setCdp(`cdp: ok ${JSON.stringify(value)}`))
+      .catch((error) => setCdp(`cdp: error ${String(error)}`));
   }, []);
 
   useEffect(() => {
@@ -75,44 +82,44 @@ export default function App() {
       const msg = parseCanvasMessage(event);
       if (!msg) return;
       if (msg.kind === "nia:ready") {
-        setCanvas((current) => (current ? { ...current, reachable: true } : current));
+        setCanvas((current) => current ? { ...current, reachable: true } : current);
         postCanvasMode(iframeRef.current, "inspect");
         if (!autoInspected.current) {
           autoInspected.current = true;
           requestCanvasInspect(iframeRef.current, "#hero-title");
         }
-      } else {
-        try {
-          const resolved = await canvasReportSelection(msg.selection);
-          const browserSource = msg.selection.source;
-          const selectionWithTargets: CanvasSelection = {
-            ...resolved,
-            source: resolved.source
-              ? {
-                  ...resolved.source,
-                  classFile: browserSource?.classFile,
-                  classLine: browserSource?.classLine,
-                  classColumn: browserSource?.classColumn,
-                  classValue: browserSource?.classValue,
-                }
-              : resolved.source,
-            styleTargets: msg.selection.styleTargets ?? {},
-          };
-          selectionRef.current = selectionWithTargets;
-          setSelection(selectionWithTargets);
-        } catch {
-          selectionRef.current = msg.selection;
-          setSelection(msg.selection);
-        }
+        return;
+      }
+
+      try {
+        const resolved = await canvasReportSelection(msg.selection);
+        const browserSource = msg.selection.source;
+        const nextSelection: CanvasSelection = {
+          ...resolved,
+          source: resolved.source ? {
+            ...resolved.source,
+            classFile: browserSource?.classFile,
+            classLine: browserSource?.classLine,
+            classColumn: browserSource?.classColumn,
+            classValue: browserSource?.classValue,
+          } : resolved.source,
+          styleTargets: msg.selection.styleTargets ?? {},
+        };
+        selectionRef.current = nextSelection;
+        setSelection(nextSelection);
+      } catch {
+        selectionRef.current = msg.selection;
+        setSelection(msg.selection);
       }
     }
+
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
   async function benchmark() {
     const samples: number[] = [];
-    for (let i = 0; i < 20; i++) samples.push(await coreRoundTrip());
+    for (let index = 0; index < 20; index++) samples.push(await coreRoundTrip());
     setLatency(samples.reduce((a, b) => a + b, 0) / samples.length);
   }
 
@@ -127,15 +134,7 @@ export default function App() {
     if (!file || !selector) return;
 
     const next = Math.max(0, current + delta);
-    const nextValue = `${next}px`;
-
-    previewCanvasStyle(
-      iframeRef.current,
-      selector,
-      property,
-      nextValue,
-      selection.selector,
-    );
+    previewCanvasStyle(iframeRef.current, selector, property, `${next}px`, selection.selector);
 
     const started = performance.now();
     try {
@@ -143,7 +142,6 @@ export default function App() {
       setLastPatch(patch);
       setLastPatchMs(performance.now() - started);
       setUndoDepth(patch.undoDepth);
-
       window.setTimeout(() => {
         clearCanvasStylePreview(iframeRef.current);
         requestCanvasInspect(iframeRef.current, selection.selector);
@@ -162,7 +160,6 @@ export default function App() {
     setUndoDepth(result.undoDepth);
     setLastPatch(null);
     setLastPatchMs(null);
-
     if (inspectSelector) {
       window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector), 250);
     }
@@ -173,18 +170,13 @@ export default function App() {
     postCanvasMode(iframeRef.current, nextMode);
   }
 
-  const hasNumericStyle = (key: string) =>
-    Number.isFinite(Number.parseFloat(selection?.styles[key] ?? ""));
+  const selectedName = selection
+    ? `${selection.tag}${selection.id ? `#${selection.id}` : ""}${selection.classes.map((item) => `.${item}`).join("")}`
+    : "Nothing selected";
 
-  const ownerLabel = (property: string) => {
-    const target = selection?.styleTargets?.[property];
-    if (!target) return null;
-    const owner = target.classToken ? `class ${target.classToken}` : target.selector;
-    const classSource = target.classToken && selection?.source?.classFile
-      ? ` @ ${selection.source.classFile}:${selection.source.classLine ?? 0}:${selection.source.classColumn ?? 0}`
-      : "";
-    return `${property} -> ${owner} · ${target.file}${classSource}`;
-  };
+  const sourceLabel = selection?.source
+    ? `${selection.source.file}:${selection.source.line}:${selection.source.column}`
+    : "No source metadata";
 
   return <main className="app">
     <header className="topbar">
@@ -195,6 +187,7 @@ export default function App() {
 
     <section className="workspace">
       <aside className="rail"><div className="railActive">A</div><div>V</div><div>F</div><div>Δ</div><div>⌕</div></aside>
+
       <aside className="agent">
         <div className="panelTitle">Nia Agent <span>•••</span></div>
         <div className="vision"><b>VISION CONTEXT</b><p>Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.</p><small>Project vision · 3 refs</small></div>
@@ -202,57 +195,80 @@ export default function App() {
         <div className="composer"><div className="chips"><span>HeroHeading ×</span><span>Vision ×</span></div><textarea placeholder="Ask Nia..."/><div className="sendRow"><span>Fast</span><button>↑</button></div></div>
       </aside>
 
-      <section className="center">
+      <section className={`center ${terminalOpen ? "terminalOpen" : "terminalClosed"}`}>
         <div className="canvasToolbar">
-          <span>
+          <span className="modeSwitch">
             <button className={canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
             <button className={canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
           </span>
           <span>Desktop · 1440 × 900</span>
           <span>Fit &nbsp; 100%</span>
         </div>
+
         <div className="canvas">
-          <div className="browser"><div className="browserBar"><span>● ● ●</span><div>{CANVAS_ORIGIN}</div><span className="pill">{canvas ? (canvas.reachable ? "canvas: live" : "canvas: down") : "canvas: ..."}</span><button onClick={() => { if (iframeRef.current) iframeRef.current.src = CANVAS_ORIGIN; }}>Reload</button></div>
+          <div className="browser">
+            <div className="browserBar"><span>● ● ●</span><div>{CANVAS_ORIGIN}</div><span className="pill">{canvas ? (canvas.reachable ? "live" : "down") : "..."}</span><button onClick={() => { if (iframeRef.current) iframeRef.current.src = CANVAS_ORIGIN; }}>Reload</button></div>
             <iframe ref={iframeRef} className="canvasFrame" title="Nia canvas" src={CANVAS_ORIGIN} />
           </div>
         </div>
-        <div className="terminal"><div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div><pre>{cdp}{"\n"}nia › dev server ready · CEF canvas online</pre></div>
+
+        <div className="terminal">
+          <button className="terminalTabs" onClick={() => setTerminalOpen((open) => !open)}>
+            <span>Terminal</span><span>Problems</span><span>Console</span><span>Network</span><span>Tests</span><b>{terminalOpen ? "⌄" : "⌃"}</b>
+          </button>
+          {terminalOpen ? <pre>{cdp}{"\n"}nia › dev server ready · CEF canvas online</pre> : null}
+        </div>
       </section>
 
-      <aside className="inspector"><div className="tabs"><b>Inspect</b><span>Components</span><span>Page</span></div>
+      <aside className="inspector">
+        <div className="tabs"><b>Inspect</b><span>Components</span><span>Page</span></div>
         {selection ? <div className="selectionLive">
-          <small>SELECTED · VIA RUST</small>
-          <strong>{selection.tag}{selection.id ? `#${selection.id}` : ""}{selection.classes.map((c) => `.${c}`).join("")}</strong>
-          {selection.source ? <div className="sourceRef">
-            <b>Source</b>
-            <code>{selection.source.file}:{selection.source.line}:{selection.source.column}</code>
-            {selection.source.classValue ? <small>className "{selection.source.classValue}" · {selection.source.classFile}:{selection.source.classLine}:{selection.source.classColumn}</small> : null}
-            <span>{selection.source.styleSelector} · {selection.source.styleFile}{selection.source.styleLine ? `:${selection.source.styleLine}` : ""}</span>
-            <div className="sourceActions">
-              <button disabled={!hasNumericStyle("fontSize")} onClick={() => changeNumericStyle("font-size", "fontSize", -4)}>Font -4</button>
-              <button disabled={!hasNumericStyle("fontSize")} onClick={() => changeNumericStyle("font-size", "fontSize", 4)}>Font +4</button>
-              <button disabled={!hasNumericStyle("gap")} onClick={() => changeNumericStyle("gap", "gap", -4)}>Gap -4</button>
-              <button disabled={!hasNumericStyle("gap")} onClick={() => changeNumericStyle("gap", "gap", 4)}>Gap +4</button>
-              <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", -4)}>Radius -4</button>
-              <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", 4)}>Radius +4</button>
-              <button disabled={undoDepth === 0} onClick={undoLastStyleEdit}>Undo {undoDepth ? `(${undoDepth})` : ""}</button>
-            </div>
-            <div className="styleOwners">
-              {["font-size", "gap", "border-radius"].map((property) => {
-                const label = ownerLabel(property);
-                return label ? <small key={property}>{label}</small> : null;
+          <div className="selectionHeader">
+            <div><small>SELECTED</small><strong>{selectedName}</strong></div>
+            <button disabled={undoDepth === 0} onClick={undoLastStyleEdit}>Undo{undoDepth ? ` ${undoDepth}` : ""}</button>
+          </div>
+
+          <section className="inspectorBlock sourceBlock">
+            <div className="sectionTitle"><b>Source</b><code>{sourceLabel}</code></div>
+            {selection.source?.classValue ? <div className="sourceMeta"><span>className</span><code>"{selection.source.classValue}"</code></div> : null}
+            {selection.source?.styleFile ? <div className="sourceMeta"><span>style</span><code>{selection.source.styleSelector} · {selection.source.styleFile}{selection.source.styleLine ? `:${selection.source.styleLine}` : ""}</code></div> : null}
+          </section>
+
+          <section className="inspectorBlock">
+            <div className="sectionTitle"><b>Properties</b><span>{selection.rect.width} × {selection.rect.height}</span></div>
+            <div className="propertyRows">
+              {EDITABLE_PROPERTIES.map(({ property, key, label, step }) => {
+                const numericValue = Number.parseFloat(selection.styles[key] ?? "");
+                const available = Number.isFinite(numericValue);
+                const owner = selection.styleTargets?.[property];
+                return <div className="propertyRow" key={property}>
+                  <div className="propertyIdentity"><span>{label}</span>{owner ? <small>{owner.classToken ? `class ${owner.classToken}` : owner.selector}</small> : <small>computed</small>}</div>
+                  <div className="stepper"><button disabled={!available} onClick={() => changeNumericStyle(property, key, -step)}>−</button><code>{available ? `${numericValue}px` : "auto"}</code><button disabled={!available} onClick={() => changeNumericStyle(property, key, step)}>+</button></div>
+                </div>;
               })}
             </div>
-            {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
-          </div> : <div className="sourceRef"><b>Source</b><span>No source metadata yet</span></div>}
-          <div className="kv"><span>box</span><span>{selection.rect.x}, {selection.rect.y} · {selection.rect.width} × {selection.rect.height}</span></div>
-          <div className="kv"><span>text</span><span>{selection.text || "-"}</span></div>
-          <section><b>DOM path</b><ol>{selection.path.map((part, index) => <li key={`${part}-${index}`}>{part}</li>)}</ol></section>
-          <section><b>Computed</b>{Object.entries(selection.styles).map(([key, value]) => <p key={key}>{key} &nbsp; {value}</p>)}</section>
-        </div> : <div className="selection"><small>SELECTED</small><strong>Nothing yet</strong><span>Click an element in the canvas...</span></div>}
+            {lastPatch ? <div className="patchStatus">Saved {lastPatch.property} {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</div> : null}
+          </section>
+
+          <section className="inspectorBlock compactBlock">
+            <div className="sectionTitle"><b>Element</b></div>
+            <div className="metaGrid"><span>Position</span><code>{selection.rect.x}, {selection.rect.y}</code><span>Text</span><code>{selection.text || "-"}</code></div>
+          </section>
+
+          <details className="debugDetails">
+            <summary>DOM path</summary>
+            <ol>{selection.path.map((part, index) => <li key={`${part}-${index}`}>{part}</li>)}</ol>
+          </details>
+
+          <details className="debugDetails">
+            <summary>Computed styles</summary>
+            <div className="computedGrid">{Object.entries(selection.styles).map(([key, value]) => <><span key={`${key}-k`}>{key}</span><code key={`${key}-v`}>{value}</code></>)}</div>
+          </details>
+        </div> : <div className="emptyInspector"><span>Inspect mode</span><strong>Click anything on the canvas</strong><p>Nia will resolve the DOM node, JSX source, and editable style owner.</p></div>}
+
         <div className="perf">
           <div><span>Rust IPC</span><strong>{latency === null ? "-" : `${latency.toFixed(2)} ms`}</strong></div>
-          <div><span>CSS index</span><strong>{styleIndex ? `v${styleIndex.version} · ${styleIndex.ruleCount} rules` : "..."}</strong></div>
+          <div><span>CSS index</span><strong>{styleIndex ? `v${styleIndex.version} · ${styleIndex.ruleCount}` : "..."}</strong></div>
           <button onClick={benchmark}>Benchmark ×20</button>
         </div>
       </aside>
