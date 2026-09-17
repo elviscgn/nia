@@ -1,5 +1,6 @@
 mod model_core;
 mod scratch_agent;
+mod scratch_code;
 mod scratch_core;
 mod vision_core;
 
@@ -16,6 +17,7 @@ mod legacy {
         scratch_agent_run,
         ScratchAgentState,
     };
+    use super::scratch_code::scratch_edit_part;
     use super::scratch_core::{
         scratch_get,
         scratch_report_selection,
@@ -68,6 +70,7 @@ mod legacy {
                 scratch_set_style_px,
                 scratch_undo,
                 scratch_reset,
+                scratch_edit_part,
                 scratch_agent_history,
                 scratch_agent_clear_history,
                 scratch_agent_run,
