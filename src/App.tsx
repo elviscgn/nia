@@ -23,9 +23,10 @@ import {
 } from "./lib/canvas";
 import {
   buildScratchPreview,
-  loadScratchDocument,
-  patchScratchCss,
-  saveScratchDocument,
+  scratchGet,
+  scratchReportSelection,
+  scratchSetStylePx,
+  scratchUndo,
   type ScratchDocument,
 } from "./lib/scratch";
 
@@ -45,6 +46,12 @@ const UTILITY_PATTERN: Record<string, RegExp> = {
   padding: /^p-(?:0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
   "margin-top": /^mt-(?:auto|0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
   "margin-bottom": /^mb-(?:auto|0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
+};
+
+type ScratchUpdatedDetail = {
+  document: ScratchDocument;
+  undoDepth: number;
+  version: number;
 };
 
 function utilityParts(token: string) {
@@ -89,15 +96,15 @@ export default function App() {
   const [editError, setEditError] = useState<string | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
   const [scratchMode, setScratchMode] = useState(false);
-  const [scratchDocument, setScratchDocument] = useState<ScratchDocument>(() => loadScratchDocument());
-  const [scratchHistory, setScratchHistory] = useState<string[]>([]);
+  const [scratchDocument, setScratchDocument] = useState<ScratchDocument | null>(null);
+  const [scratchUndoDepth, setScratchUndoDepth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const selectionRef = useRef<CanvasSelection | null>(null);
   const autoInspected = useRef(false);
 
   const scratchSrcDoc = useMemo(() => buildScratchPreview(scratchDocument), [scratchDocument]);
   const targetOrigin = scratchMode ? "*" : CANVAS_ORIGIN;
-  const visibleUndoDepth = scratchMode ? scratchHistory.length : undoDepth;
+  const visibleUndoDepth = scratchMode ? scratchUndoDepth : undoDepth;
 
   useEffect(() => { coreHealth().then(setHealth).catch(() => {}); }, []);
   useEffect(() => { canvasStatus().then(setCanvas).catch(() => {}); }, []);
@@ -105,9 +112,31 @@ export default function App() {
   useEffect(() => { postCanvasMode(iframeRef.current, canvasMode, targetOrigin); }, [canvasMode, targetOrigin]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => saveScratchDocument(scratchDocument), 120);
-    return () => window.clearTimeout(timer);
-  }, [scratchDocument]);
+    scratchGet()
+      .then((snapshot) => {
+        setScratchDocument(snapshot.document);
+        setScratchUndoDepth(snapshot.undoDepth);
+      })
+      .catch((error) => setEditError(error instanceof Error ? error.message : String(error)));
+  }, []);
+
+  useEffect(() => {
+    const onScratchUpdated = (event: Event) => {
+      const detail = (event as CustomEvent<ScratchUpdatedDetail>).detail;
+      if (!detail?.document) return;
+      setScratchDocument(detail.document);
+      setScratchUndoDepth(detail.undoDepth);
+      setScratchMode(true);
+      selectionRef.current = null;
+      setSelection(null);
+      setLastPatch(null);
+      setLastPatchMs(null);
+      setEditError(null);
+      autoInspected.current = false;
+    };
+    window.addEventListener("nia:scratch-updated", onScratchUpdated);
+    return () => window.removeEventListener("nia:scratch-updated", onScratchUpdated);
+  }, []);
 
   useEffect(() => {
     selectionRef.current = null;
@@ -165,6 +194,7 @@ export default function App() {
       if (scratchMode) {
         selectionRef.current = msg.selection;
         setSelection(msg.selection);
+        void scratchReportSelection(msg.selection).catch(() => {});
         return;
       }
 
@@ -223,22 +253,26 @@ export default function App() {
         selection.selector,
         "*",
       );
-      const started = performance.now();
-      const previousCss = scratchDocument.css;
-      const patchedCss = patchScratchCss(previousCss, scratchSelector, property, nextValue);
-      setScratchHistory((history) => [...history.slice(-99), previousCss]);
-      setScratchDocument((document) => ({ ...document, css: patchedCss }));
-      setLastPatch({
-        file: "scratch/styles.css",
-        selector: scratchSelector,
-        property,
-        previousValue: exactTarget?.value ?? null,
-        value: nextValue,
-        undoDepth: scratchHistory.length + 1,
-      });
-      setLastPatchMs(performance.now() - started);
       setEditError(null);
-      window.setTimeout(() => requestCanvasInspect(iframeRef.current, selection.selector, "*"), 180);
+      const started = performance.now();
+      try {
+        const patch = await scratchSetStylePx(scratchSelector, property, next);
+        setScratchDocument(patch.document);
+        setScratchUndoDepth(patch.undoDepth);
+        setLastPatch({
+          file: patch.file,
+          selector: patch.selector,
+          property: patch.property,
+          previousValue: patch.previousValue,
+          value: patch.value,
+          undoDepth: patch.undoDepth,
+        });
+        setLastPatchMs(performance.now() - started);
+        window.setTimeout(() => requestCanvasInspect(iframeRef.current, selection.selector, "*"), 180);
+      } catch (error) {
+        setEditError(error instanceof Error ? error.message : String(error));
+        clearCanvasStylePreview(iframeRef.current, "*");
+      }
       return;
     }
 
@@ -310,14 +344,17 @@ export default function App() {
     setEditError(null);
 
     if (scratchMode) {
-      const previousCss = scratchHistory[scratchHistory.length - 1];
-      if (previousCss === undefined) return;
-      setScratchHistory((history) => history.slice(0, -1));
-      setScratchDocument((document) => ({ ...document, css: previousCss }));
-      setLastPatch(null);
-      setLastPatchMs(null);
-      if (inspectSelector) {
-        window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector, "*"), 180);
+      try {
+        const snapshot = await scratchUndo();
+        setScratchDocument(snapshot.document);
+        setScratchUndoDepth(snapshot.undoDepth);
+        setLastPatch(null);
+        setLastPatchMs(null);
+        if (inspectSelector) {
+          window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector, "*"), 180);
+        }
+      } catch (error) {
+        setEditError(error instanceof Error ? error.message : String(error));
       }
       return;
     }
