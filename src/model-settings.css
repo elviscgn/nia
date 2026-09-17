@@ -110,3 +110,22 @@
   cursor: default;
   opacity: .45;
 }
+
+.railSettingsButton {
+  width: 34px;
+  height: 34px;
+  margin-top: auto;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: #77736b;
+  font-size: 11px;
+}
+
+.railSettingsButton:hover {
+  border-color: #d8d5cd;
+  background: rgba(255, 255, 255, .65);
+  color: var(--text);
+}
