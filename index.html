@@ -1,2 +1,27 @@
 <!doctype html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width,initial-scale=1.0"/><title>Nia</title></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+    <title>Nia</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="nia-boot-error" hidden style="font: 14px -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; color: #2b2926;">
+      Nia frontend did not mount. Check the dev terminal for a Vite or runtime error.
+    </div>
+    <script>
+      window.addEventListener("error", function () {
+        var fallback = document.getElementById("nia-boot-error");
+        if (fallback) fallback.hidden = false;
+      });
+      window.setTimeout(function () {
+        if (!document.querySelector(".app")) {
+          var fallback = document.getElementById("nia-boot-error");
+          if (fallback) fallback.hidden = false;
+        }
+      }, 3000);
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
