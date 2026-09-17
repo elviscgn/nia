@@ -4,6 +4,14 @@
 export type CanvasRect = { x: number; y: number; width: number; height: number };
 export type CanvasMode = "inspect" | "interact";
 
+export type CanvasStyleTarget = {
+  file: string;
+  selector: string;
+  property: string;
+  value: string;
+  important: boolean;
+};
+
 export type CanvasSourceRef = {
   file: string;
   line: number;
@@ -21,6 +29,7 @@ export type CanvasSelection = {
   path: string[];
   selector: string;
   styles: Record<string, string>;
+  styleTargets: Record<string, CanvasStyleTarget>;
   text: string;
   sourceUrl: string;
   source: CanvasSourceRef | null;
@@ -46,6 +55,18 @@ const STYLE_PROPS = [
   "justifyContent",
   "gap",
 ] as const;
+
+const EDITABLE_STYLE_PROPS = [
+  "font-size",
+  "gap",
+  "border-radius",
+  "padding",
+  "margin-top",
+  "margin-bottom",
+] as const;
+
+type Specificity = [number, number, number];
+type StyleCandidate = CanvasStyleTarget & { specificity: Specificity; order: number };
 
 function cssEscape(value: string) {
   return typeof CSS !== "undefined" && CSS.escape
@@ -85,6 +106,146 @@ function sourceFor(el: Element): CanvasSourceRef | null {
   };
 }
 
+function sourceFileForSheet(sheet: CSSStyleSheet): string {
+  const owner = sheet.ownerNode instanceof HTMLElement ? sheet.ownerNode : null;
+  const viteId = owner?.getAttribute("data-vite-dev-id") || "";
+  const normalize = (value: string) => decodeURIComponent(value).replace(/\\/g, "/").split("?")[0];
+
+  if (viteId) {
+    const normalized = normalize(viteId);
+    const sampleMarker = "/sample/src/";
+    const sampleIndex = normalized.lastIndexOf(sampleMarker);
+    if (sampleIndex >= 0) return normalized.slice(sampleIndex + 1);
+
+    const srcMarker = "/src/";
+    const srcIndex = normalized.lastIndexOf(srcMarker);
+    if (srcIndex >= 0) return `sample${normalized.slice(srcIndex)}`;
+  }
+
+  if (!sheet.href) return "";
+
+  try {
+    const url = new URL(sheet.href, location.href);
+    if (url.origin !== location.origin) return "";
+    const pathname = normalize(url.pathname).replace(/^\/+/, "");
+    if (!pathname) return "";
+    if (pathname.startsWith("sample/")) return pathname;
+    return pathname.startsWith("src/") ? `sample/${pathname}` : pathname;
+  } catch {
+    return "";
+  }
+}
+
+function selectorSpecificity(selector: string): Specificity {
+  const ids = selector.match(/#[a-zA-Z0-9_-]+/g)?.length ?? 0;
+  const classes = selector.match(/\.[a-zA-Z0-9_-]+|\[[^\]]+\]|:(?!:)[a-zA-Z0-9_-]+(?:\([^)]*\))?/g)?.length ?? 0;
+  const cleaned = selector
+    .replace(/#[a-zA-Z0-9_-]+/g, " ")
+    .replace(/\.[a-zA-Z0-9_-]+/g, " ")
+    .replace(/\[[^\]]+\]/g, " ")
+    .replace(/::?[a-zA-Z0-9_-]+(?:\([^)]*\))?/g, " ");
+  const types = cleaned.match(/(^|[\s>+~])([a-zA-Z][a-zA-Z0-9-]*)/g)?.length ?? 0;
+  return [ids, classes, types];
+}
+
+function compareSpecificity(a: Specificity, b: Specificity) {
+  if (a[0] !== b[0]) return a[0] - b[0];
+  if (a[1] !== b[1]) return a[1] - b[1];
+  return a[2] - b[2];
+}
+
+function isBetterCandidate(next: StyleCandidate, current: StyleCandidate | undefined) {
+  if (!current) return true;
+  if (next.important !== current.important) return next.important;
+  const specificity = compareSpecificity(next.specificity, current.specificity);
+  if (specificity !== 0) return specificity > 0;
+  return next.order >= current.order;
+}
+
+function matchingSelector(selectorText: string, el: Element): string | null {
+  let best: { selector: string; specificity: Specificity } | null = null;
+
+  for (const selector of selectorText.split(",").map((part) => part.trim()).filter(Boolean)) {
+    try {
+      if (!el.matches(selector)) continue;
+    } catch {
+      continue;
+    }
+
+    const specificity = selectorSpecificity(selector);
+    if (!best || compareSpecificity(specificity, best.specificity) > 0) {
+      best = { selector, specificity };
+    }
+  }
+
+  return best?.selector ?? null;
+}
+
+function styleTargetsFor(el: Element): Record<string, CanvasStyleTarget> {
+  const candidates: Partial<Record<(typeof EDITABLE_STYLE_PROPS)[number], StyleCandidate>> = {};
+  let order = 0;
+
+  const visitRules = (rules: CSSRuleList, file: string) => {
+    for (const cssRule of Array.from(rules)) {
+      order += 1;
+
+      if (cssRule instanceof CSSStyleRule) {
+        const selector = matchingSelector(cssRule.selectorText, el);
+        if (!selector) continue;
+        const specificity = selectorSpecificity(selector);
+
+        for (const property of EDITABLE_STYLE_PROPS) {
+          const value = cssRule.style.getPropertyValue(property).trim();
+          if (!value) continue;
+
+          const candidate: StyleCandidate = {
+            file,
+            selector,
+            property,
+            value,
+            important: cssRule.style.getPropertyPriority(property) === "important",
+            specificity,
+            order,
+          };
+
+          if (isBetterCandidate(candidate, candidates[property])) {
+            candidates[property] = candidate;
+          }
+        }
+        continue;
+      }
+
+      const nested = (cssRule as CSSGroupingRule).cssRules;
+      if (nested) visitRules(nested, file);
+    }
+  };
+
+  for (const sheet of Array.from(document.styleSheets)) {
+    const file = sourceFileForSheet(sheet as CSSStyleSheet);
+    if (!file) continue;
+
+    try {
+      visitRules((sheet as CSSStyleSheet).cssRules, file);
+    } catch {
+      continue;
+    }
+  }
+
+  const targets: Record<string, CanvasStyleTarget> = {};
+  for (const property of EDITABLE_STYLE_PROPS) {
+    const candidate = candidates[property];
+    if (!candidate) continue;
+    targets[property] = {
+      file: candidate.file,
+      selector: candidate.selector,
+      property: candidate.property,
+      value: candidate.value,
+      important: candidate.important,
+    };
+  }
+  return targets;
+}
+
 export function describeElement(el: Element): CanvasSelection {
   const rect = el.getBoundingClientRect();
   const round = (value: number) => Math.round(value * 10) / 10;
@@ -118,6 +279,7 @@ export function describeElement(el: Element): CanvasSelection {
     path,
     selector: path.join(" > "),
     styles,
+    styleTargets: styleTargetsFor(el),
     text: ((el as HTMLElement).innerText || el.textContent || "").trim().slice(0, 140),
     sourceUrl: location.href,
     source: sourceFor(el),
