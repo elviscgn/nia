@@ -71,6 +71,12 @@
   line-height: 1.45;
 }
 
+.scratchVisionCard textarea.scratchVisionReferences {
+  min-height: 58px;
+  margin-top: 0;
+  font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
 .scratchVisionCard textarea:focus {
   border-color: #c88900;
   box-shadow: 0 0 0 2px rgba(200, 137, 0, .10);
