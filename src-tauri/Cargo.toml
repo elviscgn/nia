@@ -3,6 +3,11 @@ name = "nia"
 version = "0.0.1"
 description = "Nia architecture spike"
 edition = "2024"
+autobins = false
+
+[[bin]]
+name = "nia"
+path = "src/agent_main.rs"
 
 [build-dependencies]
 tauri-build = { version = "=3.0.0-alpha.0", features = [] }
@@ -10,6 +15,7 @@ tauri-build = { version = "=3.0.0-alpha.0", features = [] }
 [dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tauri = { version = "=3.0.0-alpha.1", features = [] }
 tauri-runtime-cef = { version = "=3.0.0-alpha.1", features = ["devtools"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs"] }

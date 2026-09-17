@@ -589,6 +589,114 @@ fn patch_one_line_css_rule(
     Ok((result, previous_value))
 }
 
+fn source_hint_offset(source: &str, line: u32, column: u32) -> usize {
+    if line == 0 {
+        return 0;
+    }
+
+    let mut offset = 0usize;
+    for (index, chunk) in source.split_inclusive('\n').enumerate() {
+        if index + 1 == line as usize {
+            return offset + (column.saturating_sub(1) as usize).min(chunk.len());
+        }
+        offset += chunk.len();
+    }
+    source.len()
+}
+
+fn parse_static_class_value(source: &str, attr_start: usize) -> Option<(usize, usize, String)> {
+    let bytes = source.as_bytes();
+    let mut cursor = attr_start.checked_add("className".len())?;
+    while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+    if bytes.get(cursor).copied()? != b'=' {
+        return None;
+    }
+    cursor += 1;
+    while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+        cursor += 1;
+    }
+
+    let quote = *bytes.get(cursor)?;
+    if quote != b'\'' && quote != b'"' {
+        return None;
+    }
+    let value_start = cursor + 1;
+    let mut value_end = value_start;
+    while value_end < bytes.len() && bytes[value_end] != quote {
+        value_end += 1;
+    }
+    if value_end >= bytes.len() {
+        return None;
+    }
+
+    Some((value_start, value_end, source[value_start..value_end].to_string()))
+}
+
+fn replace_static_class_token(
+    source: &str,
+    line: u32,
+    column: u32,
+    expected_class_value: &str,
+    old_token: &str,
+    new_token: &str,
+) -> Result<String, String> {
+    if old_token.is_empty() || new_token.is_empty() {
+        return Err("class tokens cannot be empty".to_string());
+    }
+    if old_token.len() > 160 || new_token.len() > 160 {
+        return Err("class token is too long".to_string());
+    }
+    if old_token.chars().any(char::is_whitespace)
+        || new_token.chars().any(char::is_whitespace)
+        || old_token.contains(['\'', '"'])
+        || new_token.contains(['\'', '"'])
+    {
+        return Err("class tokens must be single unquoted tokens".to_string());
+    }
+    if old_token == new_token {
+        return Err("class token is unchanged".to_string());
+    }
+
+    let tokens = expected_class_value.split_ascii_whitespace().collect::<Vec<_>>();
+    if !tokens.iter().any(|token| *token == old_token) {
+        return Err(format!("class token not present in expected className: {old_token}"));
+    }
+
+    let next_class_value = tokens
+        .iter()
+        .map(|token| if *token == old_token { new_token } else { *token })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    let hint = source_hint_offset(source, line, column);
+    let mut best: Option<(usize, usize, usize)> = None;
+    for (attr_start, _) in source.match_indices("className") {
+        let Some((value_start, value_end, value)) = parse_static_class_value(source, attr_start) else {
+            continue;
+        };
+        if value != expected_class_value {
+            continue;
+        }
+        let distance = attr_start.abs_diff(hint);
+        if best.map(|(_, _, current)| distance < current).unwrap_or(true) {
+            best = Some((value_start, value_end, distance));
+        }
+    }
+
+    let Some((value_start, value_end, distance)) = best else {
+        return Err("could not find the expected static className near the source location".to_string());
+    };
+    if distance > 4096 {
+        return Err("className match was too far from the reported source location".to_string());
+    }
+
+    let mut patched = source.to_string();
+    patched.replace_range(value_start..value_end, &next_class_value);
+    Ok(patched)
+}
+
 #[tauri::command]
 async fn canvas_set_style_px(
     file: String,
@@ -651,6 +759,64 @@ async fn canvas_set_style_px(
         property,
         previous_value,
         value,
+        undo_depth,
+    })
+}
+
+#[tauri::command]
+async fn canvas_replace_class_token(
+    file: String,
+    line: u32,
+    column: u32,
+    expected_class_value: String,
+    old_token: String,
+    new_token: String,
+    history: tauri::State<'_, EditHistory>,
+) -> Result<CanvasStylePatchResult, String> {
+    let path = safe_project_file(&file)?;
+    let extension = path.extension().and_then(|extension| extension.to_str());
+    if !matches!(extension, Some("tsx" | "jsx")) {
+        return Err("class token edits currently require a TSX or JSX file".to_string());
+    }
+
+    let source = tokio::fs::read_to_string(&path)
+        .await
+        .map_err(|error| format!("failed to read {}: {error}", path.display()))?;
+    let patched = replace_static_class_token(
+        &source,
+        line,
+        column,
+        &expected_class_value,
+        &old_token,
+        &new_token,
+    )?;
+
+    tokio::fs::write(&path, &patched)
+        .await
+        .map_err(|error| format!("failed to write {}: {error}", path.display()))?;
+
+    let undo_depth = {
+        let mut undo = history.undo.lock().map_err(|error| error.to_string())?;
+        undo.push(CanvasEdit {
+            file: file.clone(),
+            selector: "className".to_string(),
+            property: "class-token".to_string(),
+            before: source,
+            after: patched,
+            previous_value: Some(old_token.clone()),
+        });
+        if undo.len() > MAX_EDIT_HISTORY {
+            undo.remove(0);
+        }
+        undo.len()
+    };
+
+    Ok(CanvasStylePatchResult {
+        file,
+        selector: "className".to_string(),
+        property: "class-token".to_string(),
+        previous_value: Some(old_token),
+        value: new_token,
         undo_depth,
     })
 }
@@ -776,6 +942,7 @@ fn main() {
             canvas_history_state,
             canvas_style_index_state,
             canvas_set_style_px,
+            canvas_replace_class_token,
             canvas_undo_style,
             canvas_cdp_evaluate
         ])
