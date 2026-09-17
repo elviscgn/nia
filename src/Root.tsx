@@ -23,10 +23,12 @@ async function refreshModelLabel() {
 
 export default function Root() {
   const [agentHost, setAgentHost] = useState<HTMLElement | null>(null);
+  const [railHost, setRailHost] = useState<HTMLElement | null>(null);
   const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
 
   useEffect(() => {
     setAgentHost(document.querySelector<HTMLElement>(".agent"));
+    setRailHost(document.querySelector<HTMLElement>(".rail"));
     void refreshModelLabel();
 
     const openModelSettings = () => setModelSettingsOpen(true);
@@ -58,6 +60,10 @@ export default function Root() {
     <>
       <App />
       {agentHost ? createPortal(<ScratchAgentPanel />, agentHost) : null}
+      {railHost ? createPortal(
+        <button className="railSettingsButton" onClick={() => setModelSettingsOpen(true)} aria-label="Open settings" title="Settings">S</button>,
+        railHost,
+      ) : null}
       {modelSettingsOpen ? <ModelSettingsPanel onClose={() => setModelSettingsOpen(false)} /> : null}
     </>
   );
