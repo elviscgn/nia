@@ -31,6 +31,14 @@ const PX_UTILITY_PREFIX: Record<string, string> = {
   "margin-bottom": "mb-",
 };
 
+function arbitraryPxToken(classValue: string, property: string) {
+  const prefix = PX_UTILITY_PREFIX[property];
+  if (!prefix) return null;
+  return classValue
+    .split(/\s+/)
+    .find((token) => token.startsWith(`${prefix}[`) && token.endsWith("px]")) ?? null;
+}
+
 function nextArbitraryPxToken(token: string, property: string, next: number) {
   const prefix = PX_UTILITY_PREFIX[property];
   if (!prefix || !token.startsWith(`${prefix}[`) || !token.endsWith("px]")) return null;
@@ -50,6 +58,7 @@ export default function App() {
   const [cdp, setCdp] = useState<string>("cdp: ...");
   const [lastPatch, setLastPatch] = useState<CanvasStylePatchResult | null>(null);
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
+  const [editError, setEditError] = useState<string | null>(null);
   const [undoDepth, setUndoDepth] = useState(0);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const selectionRef = useRef<CanvasSelection | null>(null);
@@ -143,39 +152,44 @@ export default function App() {
     const exactTarget = selection.styleTargets?.[property];
     const file = exactTarget?.file || selection.source?.styleFile || "";
     const selector = exactTarget?.selector || selection.source?.styleSelector || "";
-    if (!selector) return;
-
     const next = Math.max(0, current + delta);
     const nextValue = `${next}px`;
+
     const source = selection.source;
-    const oldClassToken = exactTarget?.classToken || "";
+    const classValue = source?.classValue || selection.classes.join(" ");
+    const oldClassToken = arbitraryPxToken(classValue, property) || "";
     const nextClassToken = oldClassToken ? nextArbitraryPxToken(oldClassToken, property, next) : null;
+    const classFile = source?.classFile || source?.file;
+    const classLine = source?.classLine || source?.line;
+    const classColumn = source?.classColumn || source?.column;
     const canEditClassToken = Boolean(
       nextClassToken
-      && source?.classFile
-      && source.classValue
-      && source.classLine
-      && source.classColumn,
+      && classFile
+      && classValue
+      && classLine
+      && classColumn,
     );
 
-    if (!canEditClassToken && !file) return;
+    if (!canEditClassToken && (!file || !selector)) return;
 
+    const previewSelector = canEditClassToken ? selection.selector : selector;
     previewCanvasStyle(
       iframeRef.current,
-      selector,
+      previewSelector,
       property,
       nextValue,
       selection.selector,
     );
 
+    setEditError(null);
     const started = performance.now();
     try {
       const patch = canEditClassToken
         ? await canvasReplaceClassToken(
-            source!.classFile!,
-            source!.classLine!,
-            source!.classColumn!,
-            source!.classValue!,
+            classFile!,
+            classLine!,
+            classColumn!,
+            classValue,
             oldClassToken,
             nextClassToken!,
           )
@@ -190,22 +204,28 @@ export default function App() {
         requestCanvasInspect(iframeRef.current, selection.selector);
       }, 400);
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setEditError(message);
       clearCanvasStylePreview(iframeRef.current);
       requestCanvasInspect(iframeRef.current, selection.selector);
-      throw error;
     }
   }
 
   async function undoLastStyleEdit() {
     const inspectSelector = selection?.selector;
     clearCanvasStylePreview(iframeRef.current);
-    const result = await canvasUndoStyle();
-    setUndoDepth(result.undoDepth);
-    setLastPatch(null);
-    setLastPatchMs(null);
+    setEditError(null);
+    try {
+      const result = await canvasUndoStyle();
+      setUndoDepth(result.undoDepth);
+      setLastPatch(null);
+      setLastPatchMs(null);
 
-    if (inspectSelector) {
-      window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector), 250);
+      if (inspectSelector) {
+        window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector), 250);
+      }
+    } catch (error) {
+      setEditError(error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -285,6 +305,7 @@ export default function App() {
               })}
             </div>
             {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
+            {editError ? <small className="patchStatus">edit error: {editError}</small> : null}
           </div> : <div className="sourceRef"><b>Source</b><span>No source metadata yet</span></div>}
           <div className="kv"><span>box</span><span>{selection.rect.x}, {selection.rect.y} · {selection.rect.width} × {selection.rect.height}</span></div>
           <div className="kv"><span>text</span><span>{selection.text || "-"}</span></div>
