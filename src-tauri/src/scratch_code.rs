@@ -25,7 +25,6 @@ fn apply_part(mut document: ScratchDocument, edit: ScratchPartEdit) -> Result<Sc
     Ok(document)
 }
 
-#[tauri::command]
 pub fn scratch_edit_part(
     edit: ScratchPartEdit,
     state: tauri::State<'_, ScratchState>,
