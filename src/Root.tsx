@@ -24,16 +24,29 @@ export default function Root() {
 
   const captureShellClick = (event: MouseEvent<HTMLDivElement>) => {
     const target = event.target instanceof HTMLElement ? event.target.closest("button") : null;
-    if (!target || target.textContent?.trim() !== "Scratch") return;
-    event.preventDefault();
-    setScratchOpen(true);
+    if (!target) return;
+
+    const label = target.textContent?.trim();
+    if (label === "Scratch") {
+      event.preventDefault();
+      setScratchOpen(true);
+      return;
+    }
+
+    if (scratchOpen && label === "Canvas") {
+      event.preventDefault();
+      closeScratch();
+    }
   };
 
   return (
-    <div onClickCapture={captureShellClick}>
+    <div
+      className={scratchOpen ? "niaRoot scratchMode" : "niaRoot"}
+      onClickCapture={captureShellClick}
+    >
       <App />
       {scratchOpen && scratchHost
-        ? createPortal(<ScratchWorkspace onClose={closeScratch} />, scratchHost)
+        ? createPortal(<ScratchWorkspace />, scratchHost)
         : null}
     </div>
   );
