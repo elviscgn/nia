@@ -7,21 +7,33 @@
   </head>
   <body>
     <div id="root"></div>
-    <div id="nia-boot-error" hidden style="font: 14px -apple-system, BlinkMacSystemFont, sans-serif; padding: 24px; color: #2b2926;">
-      Nia frontend did not mount. Check the dev terminal for a Vite or runtime error.
-    </div>
-    <script>
-      window.addEventListener("error", function () {
-        var fallback = document.getElementById("nia-boot-error");
-        if (fallback) fallback.hidden = false;
-      });
-      window.setTimeout(function () {
-        if (!document.querySelector(".app")) {
-          var fallback = document.getElementById("nia-boot-error");
-          if (fallback) fallback.hidden = false;
+    <pre id="nia-boot-error" hidden style="font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; padding: 24px; color: #2b2926; margin: 0;"></pre>
+    <script type="module">
+      const fallback = document.getElementById("nia-boot-error");
+      const showBootError = (error) => {
+        if (!fallback) return;
+        const detail = error instanceof Error
+          ? `${error.name}: ${error.message}\n\n${error.stack || ""}`
+          : String(error || "Unknown frontend boot error");
+        fallback.textContent = `Nia frontend did not mount.\n\n${detail}`;
+        fallback.hidden = false;
+      };
+
+      window.addEventListener("error", (event) => showBootError(event.error || event.message));
+      window.addEventListener("unhandledrejection", (event) => showBootError(event.reason));
+
+      try {
+        await import("/src/main.tsx");
+      } catch (error) {
+        showBootError(error);
+      }
+
+      window.setTimeout(() => {
+        if (!document.querySelector(".app") && fallback?.hidden) {
+          fallback.textContent = "Nia frontend did not mount after 3 seconds. Check the dev terminal and module error above.";
+          fallback.hidden = false;
         }
       }, 3000);
     </script>
-    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
