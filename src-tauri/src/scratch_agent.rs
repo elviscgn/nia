@@ -97,6 +97,7 @@ pub async fn scratch_agent_run(
     validate_request(&request, &document)?;
 
     let provider = model_state.resolve()?;
+    let model = provider.model.clone();
     let endpoint = format!("{}/chat/completions", provider.base_url);
 
     let system = r#"You are Nia's Scratch editing engine. Edit only the supplied raw HTML, CSS, and JavaScript document. Preserve working behavior unless the user asks to change it. Use the selected DOM context when provided. Follow the vision context as design intent. Return one JSON object only with exactly these string fields: html, css, js, summary. Do not wrap the JSON in markdown. Do not include explanations outside the JSON. Keep changes focused and make the resulting document runnable without a framework."#;
@@ -113,7 +114,7 @@ pub async fn scratch_agent_run(
     });
 
     let body = serde_json::json!({
-        "model": provider.model,
+        "model": model,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": user_payload.to_string() }
@@ -170,7 +171,7 @@ pub async fn scratch_agent_run(
     Ok(ScratchAgentResponse {
         document: snapshot.document,
         summary: edit.summary,
-        model: provider.model,
+        model,
         latency_ms: started.elapsed().as_millis(),
         undo_depth: snapshot.undo_depth,
         version: snapshot.version,
