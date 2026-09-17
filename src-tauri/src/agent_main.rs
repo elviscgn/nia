@@ -1,6 +1,8 @@
 mod scratch_agent;
 
 mod legacy {
+    use super::scratch_agent::scratch_agent_run;
+
     include!("main.rs");
 
     pub fn run_with_scratch_agent() {
@@ -31,7 +33,7 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
-                super::scratch_agent::scratch_agent_run
+                scratch_agent_run
             ])
             .run(tauri::generate_context!())
             .expect("error while running Nia");
