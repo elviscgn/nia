@@ -5,12 +5,12 @@ use std::time::{Duration, Instant};
 
 const MAX_DOCUMENT_BYTES: usize = 1_000_000;
 const MAX_PROMPT_BYTES: usize = 24_000;
+const DEFAULT_VISION: &str = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScratchAgentRequest {
     prompt: String,
-    vision: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -113,7 +113,7 @@ pub async fn scratch_agent_run(
 
     let user_payload = serde_json::json!({
         "request": request.prompt,
-        "vision": request.vision,
+        "vision": DEFAULT_VISION,
         "selection": selection_context(&selection),
         "document": {
             "html": document.html,
