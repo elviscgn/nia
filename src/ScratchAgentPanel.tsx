@@ -1,48 +1,22 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { parseCanvasMessage, type CanvasSelection } from "./lib/canvas";
 import {
+  scratchAgentHistory,
   scratchAgentRun,
-  selectionForScratchAgent,
   type ScratchAgentResponse,
+  type ScratchChatEntry,
 } from "./lib/agent";
-import { loadScratchDocument, saveScratchDocument } from "./lib/scratch";
 import "./scratch-agent.css";
 
-const VISION = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
-const CHAT_KEY = "nia:scratch-agent-chat:v1";
-
-type ChatEntry = {
-  role: "user" | "assistant" | "error";
-  text: string;
-  meta?: string;
-};
-
-type ScratchAgentPanelProps = {
-  onApplied: () => void;
-};
-
-function loadChat(): ChatEntry[] {
-  try {
-    const raw = window.localStorage.getItem(CHAT_KEY);
-    if (!raw) return [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
-    const parsed = JSON.parse(raw) as ChatEntry[];
-    return Array.isArray(parsed) && parsed.length
-      ? parsed
-      : [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
-  } catch {
-    return [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
-  }
-}
-
-export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps) {
+export default function ScratchAgentPanel() {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
-  const [messages, setMessages] = useState<ChatEntry[]>(() => loadChat());
+  const [messages, setMessages] = useState<ScratchChatEntry[]>([]);
 
   useEffect(() => {
-    window.localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-80)));
-  }, [messages]);
+    scratchAgentHistory().then(setMessages).catch(() => {});
+  }, []);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
@@ -61,34 +35,30 @@ export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps)
 
     setPrompt("");
     setBusy(true);
-    setMessages((current) => [...current, { role: "user", text: requestText }]);
+    setMessages((current) => [
+      ...current,
+      { role: "user", text: requestText, meta: null },
+    ]);
 
-    const document = loadScratchDocument();
     try {
-      const response: ScratchAgentResponse = await scratchAgentRun({
-        prompt: requestText,
-        vision: VISION,
-        selection: selectionForScratchAgent(selection),
-        html: document.html,
-        css: document.css,
-        js: document.js,
-      });
-
-      saveScratchDocument({ html: response.html, css: response.css, js: response.js });
-      setMessages((current) => [
-        ...current,
-        {
-          role: "assistant",
-          text: response.summary || "Updated Scratch.",
-          meta: `${response.model} · ${response.latencyMs} ms`,
+      const response: ScratchAgentResponse = await scratchAgentRun({ prompt: requestText });
+      setMessages(response.history);
+      window.dispatchEvent(new CustomEvent("nia:scratch-updated", {
+        detail: {
+          document: response.document,
+          undoDepth: response.undoDepth,
+          version: response.version,
         },
-      ]);
-      onApplied();
+      }));
     } catch (error) {
-      setMessages((current) => [
-        ...current,
-        { role: "error", text: error instanceof Error ? error.message : String(error) },
-      ]);
+      try {
+        setMessages(await scratchAgentHistory());
+      } catch {
+        setMessages((current) => [
+          ...current,
+          { role: "error", text: error instanceof Error ? error.message : String(error), meta: null },
+        ]);
+      }
     } finally {
       setBusy(false);
     }

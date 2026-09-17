@@ -1,36 +1,70 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import App from "./App";
+import ModelSettingsPanel from "./ModelSettingsPanel";
 import ScratchAgentPanel from "./ScratchAgentPanel";
+import { modelSettingsGet } from "./lib/model";
+
+function modelButton() {
+  return Array.from(document.querySelectorAll<HTMLButtonElement>(".actions button"))
+    .find((button) => button.textContent?.trim().startsWith("Model")) ?? null;
+}
+
+async function refreshModelLabel() {
+  const button = modelButton();
+  if (!button) return;
+  try {
+    const settings = await modelSettingsGet();
+    button.textContent = settings.model ? `Model · ${settings.model}` : "Model · Setup";
+  } catch {
+    button.textContent = "Model · Setup";
+  }
+}
 
 export default function Root() {
-  const [appVersion, setAppVersion] = useState(0);
   const [agentHost, setAgentHost] = useState<HTMLElement | null>(null);
-  const reopenScratch = useRef(false);
+  const [railHost, setRailHost] = useState<HTMLElement | null>(null);
+  const [modelSettingsOpen, setModelSettingsOpen] = useState(false);
 
   useEffect(() => {
-    const host = document.querySelector<HTMLElement>(".agent");
-    setAgentHost(host);
+    setAgentHost(document.querySelector<HTMLElement>(".agent"));
+    setRailHost(document.querySelector<HTMLElement>(".rail"));
+    void refreshModelLabel();
 
-    if (!reopenScratch.current) return;
-    reopenScratch.current = false;
-    window.requestAnimationFrame(() => {
-      const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(".canvasToolbar button"));
-      const scratchButton = buttons.find((button) => button.textContent?.trim() === "Scratch");
-      scratchButton?.click();
-    });
-  }, [appVersion]);
+    const openModelSettings = () => setModelSettingsOpen(true);
+    const onModelUpdated = () => void refreshModelLabel();
+    const onClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest("button") : null;
+      if (!target) return;
+      if (!target.closest(".actions")) return;
+      if (!target.textContent?.trim().startsWith("Model")) return;
+      setModelSettingsOpen(true);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setModelSettingsOpen(false);
+    };
 
-  const applyAgentDocument = () => {
-    reopenScratch.current = true;
-    setAgentHost(null);
-    setAppVersion((version) => version + 1);
-  };
+    window.addEventListener("nia:open-model-settings", openModelSettings);
+    window.addEventListener("nia:model-settings-updated", onModelUpdated);
+    document.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("nia:open-model-settings", openModelSettings);
+      window.removeEventListener("nia:model-settings-updated", onModelUpdated);
+      document.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, []);
 
   return (
     <>
-      <App key={appVersion} />
-      {agentHost ? createPortal(<ScratchAgentPanel onApplied={applyAgentDocument} />, agentHost) : null}
+      <App />
+      {agentHost ? createPortal(<ScratchAgentPanel />, agentHost) : null}
+      {railHost ? createPortal(
+        <button className="railSettingsButton" onClick={() => setModelSettingsOpen(true)} aria-label="Open settings" title="Settings">S</button>,
+        railHost,
+      ) : null}
+      {modelSettingsOpen ? <ModelSettingsPanel onClose={() => setModelSettingsOpen(false)} /> : null}
     </>
   );
 }

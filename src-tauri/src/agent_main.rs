@@ -1,14 +1,30 @@
+mod model_core;
 mod scratch_agent;
+mod scratch_core;
 
 mod legacy {
-    include!("main.rs");
+    use super::model_core::{
+        model_settings_get,
+        model_settings_save,
+        model_test_connection,
+        ModelState,
+    };
+    use super::scratch_agent::{
+        scratch_agent_clear_history,
+        scratch_agent_history,
+        scratch_agent_run,
+        ScratchAgentState,
+    };
+    use super::scratch_core::{
+        scratch_get,
+        scratch_report_selection,
+        scratch_reset,
+        scratch_set_style_px,
+        scratch_undo,
+        ScratchState,
+    };
 
-    #[tauri::command]
-    async fn scratch_agent_run(
-        request: super::scratch_agent::ScratchAgentRequest,
-    ) -> Result<super::scratch_agent::ScratchAgentResponse, String> {
-        super::scratch_agent::scratch_agent_run(request).await
-    }
+    include!("main.rs");
 
     pub fn run_with_scratch_agent() {
         let style_index = StyleIndex::start();
@@ -23,6 +39,9 @@ mod legacy {
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
+            .manage(ModelState::load())
+            .manage(ScratchState::load())
+            .manage(ScratchAgentState::load())
             .invoke_handler(tauri::generate_handler![
                 ping,
                 core_health,
@@ -38,6 +57,16 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
+                model_settings_get,
+                model_settings_save,
+                model_test_connection,
+                scratch_get,
+                scratch_report_selection,
+                scratch_set_style_px,
+                scratch_undo,
+                scratch_reset,
+                scratch_agent_history,
+                scratch_agent_clear_history,
                 scratch_agent_run
             ])
             .run(tauri::generate_context!())
