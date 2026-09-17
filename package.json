@@ -5,10 +5,10 @@
   "type": "module",
   "packageManager": "pnpm@11.19.0",
   "scripts": {
-    "dev": "pnpm dev:clean-cef && concurrently -k -n nia,sample \"pnpm dev:nia\" \"pnpm dev:sample\"",
-    "dev:clean-cef": "pkill -x Nia 2>/dev/null || true; pkill -f 'Nia Helper' 2>/dev/null || true; rm -rf \"$HOME/Library/Caches/dev.nia.app/cef\"",
-    "dev:nia": "vite --host 127.0.0.1 --port 1420",
-    "dev:sample": "vite --config sample.vite.config.ts --host 127.0.0.1 --port 1421",
+    "dev": "pnpm dev:clean && concurrently -k -n nia,sample \"pnpm dev:nia\" \"pnpm dev:sample\"",
+    "dev:clean": "pkill -x Nia 2>/dev/null || true; pkill -f 'Nia Helper' 2>/dev/null || true; for port in 1420 1421; do pids=$(lsof -ti tcp:$port 2>/dev/null); if [ -n \"$pids\" ]; then kill $pids 2>/dev/null || true; fi; done; rm -rf \"$HOME/Library/Caches/dev.nia.app/cef\"",
+    "dev:nia": "vite --host 127.0.0.1 --port 1420 --strictPort",
+    "dev:sample": "vite --config sample.vite.config.ts --host 127.0.0.1 --port 1421 --strictPort",
     "build": "tsc && vite build",
     "setup:mac": "zsh scripts/setup-macos.sh",
     "tauri": "tauri"
