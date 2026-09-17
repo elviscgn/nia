@@ -12,8 +12,28 @@ export default function Root() {
     setAgentHost(document.querySelector<HTMLElement>(".agent"));
 
     const openModelSettings = () => setModelSettingsOpen(true);
+    const onClick = (event: MouseEvent) => {
+      const target = event.target instanceof Element ? event.target.closest("button") : null;
+      if (target?.textContent?.trim() === "Model · Auto") {
+        event.preventDefault();
+        openModelSettings();
+      }
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+        event.preventDefault();
+        openModelSettings();
+      }
+    };
+
     window.addEventListener("nia:open-model-settings", openModelSettings);
-    return () => window.removeEventListener("nia:open-model-settings", openModelSettings);
+    document.addEventListener("click", onClick);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("nia:open-model-settings", openModelSettings);
+      document.removeEventListener("click", onClick);
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, []);
 
   return (
