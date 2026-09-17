@@ -302,21 +302,18 @@ async fn execute_edit(
     })
 }
 
-#[tauri::command]
 pub fn scratch_agent_history(
     state: tauri::State<'_, ScratchAgentState>,
 ) -> Result<Vec<ScratchChatEntry>, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn scratch_agent_clear_history(
     state: tauri::State<'_, ScratchAgentState>,
 ) -> Result<Vec<ScratchChatEntry>, String> {
     state.clear()
 }
 
-#[tauri::command]
 pub async fn scratch_agent_run(
     request: ScratchAgentRequest,
     scratch_state: tauri::State<'_, ScratchState>,
