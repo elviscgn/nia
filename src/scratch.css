@@ -1,0 +1,200 @@
+.scratchWorkspace {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: 48px minmax(0, 1fr);
+  background: #efeee9;
+  color: #181816;
+}
+
+.scratchTopbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 14px 0 16px;
+  border-bottom: 1px solid #d7d5ce;
+  background: #f8f7f3;
+}
+
+.scratchTopbar > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.scratchTopbar strong {
+  font-size: 14px;
+  letter-spacing: -.01em;
+}
+
+.scratchTopbar span {
+  color: #817c73;
+  font-size: 12px;
+}
+
+.scratchActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.scratchActions button,
+.scratchTabs button {
+  border: 1px solid #d7d5ce;
+  border-radius: 7px;
+  background: #fff;
+  color: #302e29;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.scratchActions button {
+  height: 30px;
+  padding: 0 11px;
+}
+
+.scratchActions button:hover,
+.scratchTabs button:hover {
+  border-color: #bdb9af;
+  background: #faf9f6;
+}
+
+.scratchActions .scratchClose {
+  border-color: #b57b00;
+  background: #d59a10;
+  color: #1c170b;
+  font-weight: 700;
+}
+
+.scratchLive {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scratchLive::before {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #b87c00;
+  content: "";
+}
+
+.scratchBody {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(360px, .92fr) minmax(480px, 1.38fr);
+  gap: 1px;
+  background: #d7d5ce;
+}
+
+.scratchEditorPane,
+.scratchPreviewPane {
+  min-width: 0;
+  min-height: 0;
+  background: #fff;
+}
+
+.scratchEditorPane {
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr) 28px;
+}
+
+.scratchTabs {
+  display: flex;
+  align-items: end;
+  gap: 2px;
+  padding: 7px 8px 0;
+  border-bottom: 1px solid #dedcd5;
+  background: #f6f5f1;
+}
+
+.scratchTabs button {
+  height: 34px;
+  padding: 0 12px;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  color: #716d65;
+}
+
+.scratchTabs button.active {
+  position: relative;
+  top: 1px;
+  border-bottom-color: #fff;
+  background: #fff;
+  color: #1d1c18;
+  font-weight: 700;
+}
+
+.scratchEditor {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 18px 20px 28px;
+  background: #fff;
+  color: #282621;
+  font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  tab-size: 2;
+}
+
+.scratchEditor::selection {
+  background: #f3d88f;
+}
+
+.scratchEditorStatus {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 10px;
+  border-top: 1px solid #ebe9e3;
+  background: #faf9f6;
+  color: #918c83;
+  font-size: 11px;
+}
+
+.scratchPreviewPane {
+  display: grid;
+  grid-template-rows: 38px minmax(0, 1fr);
+}
+
+.scratchPreviewBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid #dedcd5;
+  background: #f8f7f3;
+  color: #77736b;
+  font-size: 11px;
+}
+
+.scratchPreviewBar span:first-child {
+  color: #2a2823;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.scratchPreview {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+}
+
+@media (max-width: 980px) {
+  .scratchBody {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(320px, .9fr) minmax(360px, 1.1fr);
+  }
+
+  .scratchTopbar > div:first-child span {
+    display: none;
+  }
+}
