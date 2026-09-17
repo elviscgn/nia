@@ -87,13 +87,13 @@ h1 { margin: 12px 0; font-size: 72px; line-height: .94; letter-spacing: -.05em; 
 button { margin-top: 20px; border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 700; background: #d79a08; color: #1d1708; cursor: pointer; }
 .status { margin-top: 18px; color: #7d776d; }"#
             .to_string(),
-        js: r#"const button = document.querySelector("#action");
+        js: r##"const button = document.querySelector("#action");
 const status = document.querySelector("#status");
 let clicks = 0;
 button?.addEventListener("click", () => {
   clicks += 1;
   if (status) status.textContent = `Clicked ${clicks} time${clicks === 1 ? "" : "s"}.`;
-});"#
+});"##
             .to_string(),
     }
 }
