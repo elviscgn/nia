@@ -9,6 +9,7 @@ export type CanvasStyleTarget = {
   property: string;
   value: string;
   important: boolean;
+  classToken?: string;
 };
 
 export type CanvasSourceRef = {
