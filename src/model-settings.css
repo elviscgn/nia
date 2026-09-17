@@ -1,0 +1,112 @@
+.modelSettingsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(24, 24, 22, .24);
+  backdrop-filter: blur(8px);
+}
+
+.modelSettingsPanel {
+  width: min(520px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel-strong);
+  box-shadow: var(--shadow);
+}
+
+.modelSettingsPanel header,
+.modelSettingsPanel footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.modelSettingsPanel header small {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--amber-strong);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.modelSettingsPanel h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.modelSettingsPanel header button,
+.modelSettingsPanel footer button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-soft);
+  padding: 8px 11px;
+}
+
+.modelSettingsPanel header button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  font-size: 20px;
+}
+
+.modelSettingsPanel label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.modelSettingsPanel label input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  outline: 0;
+  padding: 10px 11px;
+  background: #fff;
+  font: 12px ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.modelSettingsPanel label input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px rgba(200, 137, 0, .12);
+}
+
+.modelSettingsPanel label small,
+.modelSettingsStatus {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.modelSettingsStatus {
+  min-height: 30px;
+  padding: 9px 10px;
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.modelSettingsPanel footer {
+  justify-content: flex-end;
+}
+
+.modelSettingsPanel footer button.primary {
+  border-color: #b97c00;
+  background: var(--amber);
+  font-weight: 700;
+}
+
+.modelSettingsPanel button:disabled {
+  cursor: default;
+  opacity: .45;
+}
