@@ -3,7 +3,6 @@ import { parseCanvasMessage, type CanvasSelection } from "./lib/canvas";
 import { scratchAgentRun, type ScratchAgentResponse } from "./lib/agent";
 import "./scratch-agent.css";
 
-const VISION = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
 const CHAT_KEY = "nia:scratch-agent-chat:v1";
 
 type ChatEntry = {
@@ -55,11 +54,7 @@ export default function ScratchAgentPanel() {
     setMessages((current) => [...current, { role: "user", text: requestText }]);
 
     try {
-      const response: ScratchAgentResponse = await scratchAgentRun({
-        prompt: requestText,
-        vision: VISION,
-      });
-
+      const response: ScratchAgentResponse = await scratchAgentRun({ prompt: requestText });
       setMessages((current) => [
         ...current,
         {
