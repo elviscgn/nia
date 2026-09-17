@@ -1,5 +1,5 @@
+use crate::scratch_core::{ScratchDocument, ScratchSelection, ScratchState};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::env;
 use std::time::{Duration, Instant};
 
@@ -8,43 +8,20 @@ const MAX_PROMPT_BYTES: usize = 24_000;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ScratchAgentSelection {
-    selector: String,
-    tag: String,
-    id: String,
-    classes: Vec<String>,
-    text: String,
-    styles: BTreeMap<String, String>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct ScratchAgentRequest {
     prompt: String,
-    html: String,
-    css: String,
-    js: String,
     vision: String,
-    selection: Option<ScratchAgentSelection>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ScratchAgentDocument {
-    html: String,
-    css: String,
-    js: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScratchAgentResponse {
-    html: String,
-    css: String,
-    js: String,
+    document: ScratchDocument,
     summary: String,
     model: String,
     latency_ms: u128,
+    undo_depth: usize,
+    version: u64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,21 +65,21 @@ fn trim_json_fence(value: &str) -> &str {
     trimmed
 }
 
-fn validate_request(request: &ScratchAgentRequest) -> Result<(), String> {
+fn validate_request(request: &ScratchAgentRequest, document: &ScratchDocument) -> Result<(), String> {
     if request.prompt.trim().is_empty() {
         return Err("agent prompt is empty".to_string());
     }
     if request.prompt.len() > MAX_PROMPT_BYTES {
         return Err("agent prompt is too large".to_string());
     }
-    let document_size = request.html.len() + request.css.len() + request.js.len();
+    let document_size = document.html.len() + document.css.len() + document.js.len();
     if document_size > MAX_DOCUMENT_BYTES {
         return Err("scratch document is too large for this agent request".to_string());
     }
     Ok(())
 }
 
-fn selection_context(selection: &Option<ScratchAgentSelection>) -> serde_json::Value {
+fn selection_context(selection: &Option<ScratchSelection>) -> serde_json::Value {
     match selection {
         Some(selection) => serde_json::json!({
             "selector": selection.selector,
@@ -117,8 +94,13 @@ fn selection_context(selection: &Option<ScratchAgentSelection>) -> serde_json::V
 }
 
 #[tauri::command]
-pub async fn scratch_agent_run(request: ScratchAgentRequest) -> Result<ScratchAgentResponse, String> {
-    validate_request(&request)?;
+pub async fn scratch_agent_run(
+    request: ScratchAgentRequest,
+    state: tauri::State<'_, ScratchState>,
+) -> Result<ScratchAgentResponse, String> {
+    let document = state.document()?;
+    let selection = state.selection()?;
+    validate_request(&request, &document)?;
 
     let base_url = provider_setting("NIA_MODEL_BASE_URL", "OPENAI_BASE_URL")
         .ok_or_else(|| "no model provider configured, set NIA_MODEL_BASE_URL and NIA_MODEL".to_string())?;
@@ -132,11 +114,11 @@ pub async fn scratch_agent_run(request: ScratchAgentRequest) -> Result<ScratchAg
     let user_payload = serde_json::json!({
         "request": request.prompt,
         "vision": request.vision,
-        "selection": selection_context(&request.selection),
+        "selection": selection_context(&selection),
         "document": {
-            "html": request.html,
-            "css": request.css,
-            "js": request.js,
+            "html": document.html,
+            "css": document.css,
+            "js": document.js,
         }
     });
 
@@ -183,17 +165,24 @@ pub async fn scratch_agent_run(request: ScratchAgentRequest) -> Result<ScratchAg
     let edit: ModelEdit = serde_json::from_str(trim_json_fence(content))
         .map_err(|error| format!("model did not return valid Scratch JSON: {error}"))?;
 
-    let result_size = edit.html.len() + edit.css.len() + edit.js.len();
+    let next = ScratchDocument {
+        html: edit.html,
+        css: edit.css,
+        js: edit.js,
+    };
+    let result_size = next.html.len() + next.css.len() + next.js.len();
     if result_size > MAX_DOCUMENT_BYTES {
         return Err("model returned a Scratch document that is too large".to_string());
     }
 
+    let snapshot = state.replace_document(next)?;
+
     Ok(ScratchAgentResponse {
-        html: edit.html,
-        css: edit.css,
-        js: edit.js,
+        document: snapshot.document,
         summary: edit.summary,
         model,
         latency_ms: started.elapsed().as_millis(),
+        undo_depth: snapshot.undo_depth,
+        version: snapshot.version,
     })
 }
