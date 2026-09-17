@@ -113,7 +113,7 @@ export type CanvasInbound =
   | { kind: "nia:select"; selection: CanvasSelection };
 
 export function parseCanvasMessage(event: MessageEvent): CanvasInbound | null {
-  if (event.origin !== CANVAS_ORIGIN) return null;
+  if (event.origin !== CANVAS_ORIGIN && event.origin !== "null") return null;
   const data = event.data as {
     source?: string;
     kind?: string;
@@ -128,17 +128,25 @@ export function parseCanvasMessage(event: MessageEvent): CanvasInbound | null {
   return null;
 }
 
-export function setCanvasMode(iframe: HTMLIFrameElement | null, mode: CanvasMode) {
+export function setCanvasMode(
+  iframe: HTMLIFrameElement | null,
+  mode: CanvasMode,
+  targetOrigin = CANVAS_ORIGIN,
+) {
   iframe?.contentWindow?.postMessage(
     { source: "nia-shell", kind: "nia:mode", mode },
-    CANVAS_ORIGIN,
+    targetOrigin,
   );
 }
 
-export function requestCanvasInspect(iframe: HTMLIFrameElement | null, selector: string) {
+export function requestCanvasInspect(
+  iframe: HTMLIFrameElement | null,
+  selector: string,
+  targetOrigin = CANVAS_ORIGIN,
+) {
   iframe?.contentWindow?.postMessage(
     { source: "nia-shell", kind: "nia:inspect-request", selector },
-    CANVAS_ORIGIN,
+    targetOrigin,
   );
 }
 
@@ -148,6 +156,7 @@ export function previewCanvasStyle(
   property: string,
   value: string,
   inspectSelector: string,
+  targetOrigin = CANVAS_ORIGIN,
 ) {
   iframe?.contentWindow?.postMessage(
     {
@@ -158,13 +167,16 @@ export function previewCanvasStyle(
       value,
       inspectSelector,
     },
-    CANVAS_ORIGIN,
+    targetOrigin,
   );
 }
 
-export function clearCanvasStylePreview(iframe: HTMLIFrameElement | null) {
+export function clearCanvasStylePreview(
+  iframe: HTMLIFrameElement | null,
+  targetOrigin = CANVAS_ORIGIN,
+) {
   iframe?.contentWindow?.postMessage(
     { source: "nia-shell", kind: "nia:style-preview-clear" },
-    CANVAS_ORIGIN,
+    targetOrigin,
   );
 }
