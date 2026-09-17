@@ -20,6 +20,10 @@ export type CanvasSourceRef = {
   styleFile: string;
   styleSelector: string;
   styleLine: number;
+  classFile?: string;
+  classLine?: number;
+  classColumn?: number;
+  classValue?: string;
 };
 
 export type CanvasSelection = {
@@ -104,6 +108,8 @@ function sourceFor(el: Element): CanvasSourceRef | null {
   const file = owner.dataset.niaSourceFile ?? "";
   const line = Number.parseInt(owner.dataset.niaSourceLine ?? "0", 10);
   const column = Number.parseInt(owner.dataset.niaSourceColumn ?? "0", 10);
+  const classLine = Number.parseInt(owner.dataset.niaClassLine ?? "0", 10);
+  const classColumn = Number.parseInt(owner.dataset.niaClassColumn ?? "0", 10);
 
   return {
     file,
@@ -112,6 +118,10 @@ function sourceFor(el: Element): CanvasSourceRef | null {
     styleFile: "",
     styleSelector: "",
     styleLine: 0,
+    classFile: owner.dataset.niaClassFile || undefined,
+    classLine: Number.isFinite(classLine) && classLine > 0 ? classLine : undefined,
+    classColumn: Number.isFinite(classColumn) && classColumn > 0 ? classColumn : undefined,
+    classValue: owner.dataset.niaClassValue || undefined,
   };
 }
 
