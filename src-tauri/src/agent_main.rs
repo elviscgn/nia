@@ -6,59 +6,163 @@ mod vision_core;
 
 mod legacy {
     use super::model_core::{
-        model_settings_get,
-        model_settings_save,
-        model_test_connection,
+        model_settings_get as core_model_settings_get,
+        model_settings_save as core_model_settings_save,
+        model_test_connection as core_model_test_connection,
+        ModelConnectionResult,
+        ModelSettingsInput,
+        ModelSettingsSnapshot,
         ModelState,
     };
     use super::scratch_agent::{
-        scratch_agent_clear_history,
-        scratch_agent_history,
-        scratch_agent_run,
+        scratch_agent_clear_history as core_scratch_agent_clear_history,
+        scratch_agent_history as core_scratch_agent_history,
+        scratch_agent_run as core_scratch_agent_run,
+        ScratchAgentRequest,
+        ScratchAgentResponse,
         ScratchAgentState,
+        ScratchChatEntry,
     };
-    use super::scratch_code::scratch_edit_part;
+    use super::scratch_code::{
+        scratch_edit_part as core_scratch_edit_part,
+        ScratchPartEdit,
+    };
     use super::scratch_core::{
-        scratch_get,
-        scratch_report_selection,
-        scratch_reset,
-        scratch_set_style_px,
-        scratch_undo,
+        scratch_get as core_scratch_get,
+        scratch_report_selection as core_scratch_report_selection,
+        scratch_reset as core_scratch_reset,
+        scratch_set_style_px as core_scratch_set_style_px,
+        scratch_undo as core_scratch_undo,
+        ScratchSelection,
+        ScratchSnapshot,
         ScratchState,
+        ScratchStylePatchResult,
     };
-    use super::vision_core::{vision_get, vision_save, VisionState};
-    use crate::{
-        __cmd__model_settings_get,
-        __cmd__model_settings_save,
-        __cmd__model_test_connection,
-        __cmd__scratch_agent_clear_history,
-        __cmd__scratch_agent_history,
-        __cmd__scratch_agent_run,
-        __cmd__scratch_edit_part,
-        __cmd__scratch_get,
-        __cmd__scratch_report_selection,
-        __cmd__scratch_reset,
-        __cmd__scratch_set_style_px,
-        __cmd__scratch_undo,
-        __cmd__vision_get,
-        __cmd__vision_save,
-        __tauri_command_name_model_settings_get,
-        __tauri_command_name_model_settings_save,
-        __tauri_command_name_model_test_connection,
-        __tauri_command_name_scratch_agent_clear_history,
-        __tauri_command_name_scratch_agent_history,
-        __tauri_command_name_scratch_agent_run,
-        __tauri_command_name_scratch_edit_part,
-        __tauri_command_name_scratch_get,
-        __tauri_command_name_scratch_report_selection,
-        __tauri_command_name_scratch_reset,
-        __tauri_command_name_scratch_set_style_px,
-        __tauri_command_name_scratch_undo,
-        __tauri_command_name_vision_get,
-        __tauri_command_name_vision_save,
+    use super::vision_core::{
+        vision_get as core_vision_get,
+        vision_save as core_vision_save,
+        VisionContextInput,
+        VisionContextSnapshot,
+        VisionState,
     };
 
     include!("main.rs");
+
+    #[tauri::command]
+    fn model_settings_get(
+        state: tauri::State<'_, ModelState>,
+    ) -> Result<ModelSettingsSnapshot, String> {
+        core_model_settings_get(state)
+    }
+
+    #[tauri::command]
+    fn model_settings_save(
+        input: ModelSettingsInput,
+        state: tauri::State<'_, ModelState>,
+    ) -> Result<ModelSettingsSnapshot, String> {
+        core_model_settings_save(input, state)
+    }
+
+    #[tauri::command]
+    async fn model_test_connection(
+        state: tauri::State<'_, ModelState>,
+    ) -> Result<ModelConnectionResult, String> {
+        core_model_test_connection(state).await
+    }
+
+    #[tauri::command]
+    fn scratch_get(
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<ScratchSnapshot, String> {
+        core_scratch_get(state)
+    }
+
+    #[tauri::command]
+    fn scratch_report_selection(
+        selection: ScratchSelection,
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<(), String> {
+        core_scratch_report_selection(selection, state)
+    }
+
+    #[tauri::command]
+    fn scratch_set_style_px(
+        selector: String,
+        property: String,
+        value_px: f64,
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<ScratchStylePatchResult, String> {
+        core_scratch_set_style_px(selector, property, value_px, state)
+    }
+
+    #[tauri::command]
+    fn scratch_undo(
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<ScratchSnapshot, String> {
+        core_scratch_undo(state)
+    }
+
+    #[tauri::command]
+    fn scratch_reset(
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<ScratchSnapshot, String> {
+        core_scratch_reset(state)
+    }
+
+    #[tauri::command]
+    fn scratch_edit_part(
+        edit: ScratchPartEdit,
+        state: tauri::State<'_, ScratchState>,
+    ) -> Result<ScratchSnapshot, String> {
+        core_scratch_edit_part(edit, state)
+    }
+
+    #[tauri::command]
+    fn scratch_agent_history(
+        state: tauri::State<'_, ScratchAgentState>,
+    ) -> Result<Vec<ScratchChatEntry>, String> {
+        core_scratch_agent_history(state)
+    }
+
+    #[tauri::command]
+    fn scratch_agent_clear_history(
+        state: tauri::State<'_, ScratchAgentState>,
+    ) -> Result<Vec<ScratchChatEntry>, String> {
+        core_scratch_agent_clear_history(state)
+    }
+
+    #[tauri::command]
+    async fn scratch_agent_run(
+        request: ScratchAgentRequest,
+        scratch_state: tauri::State<'_, ScratchState>,
+        model_state: tauri::State<'_, ModelState>,
+        vision_state: tauri::State<'_, VisionState>,
+        agent_state: tauri::State<'_, ScratchAgentState>,
+    ) -> Result<ScratchAgentResponse, String> {
+        core_scratch_agent_run(
+            request,
+            scratch_state,
+            model_state,
+            vision_state,
+            agent_state,
+        )
+        .await
+    }
+
+    #[tauri::command]
+    fn vision_get(
+        state: tauri::State<'_, VisionState>,
+    ) -> Result<VisionContextSnapshot, String> {
+        core_vision_get(state)
+    }
+
+    #[tauri::command]
+    fn vision_save(
+        input: VisionContextInput,
+        state: tauri::State<'_, VisionState>,
+    ) -> Result<VisionContextSnapshot, String> {
+        core_vision_save(input, state)
+    }
 
     pub fn run_with_scratch_agent() {
         let style_index = StyleIndex::start();
