@@ -3,6 +3,11 @@ name = "nia"
 version = "0.0.1"
 description = "Nia architecture spike"
 edition = "2024"
+autobins = false
+
+[[bin]]
+name = "nia"
+path = "src/agent_main.rs"
 
 [build-dependencies]
 tauri-build = { version = "=3.0.0-alpha.0", features = [] }
