@@ -84,8 +84,12 @@ export default function App() {
       } else {
         try {
           const resolved = await canvasReportSelection(msg.selection);
-          selectionRef.current = resolved;
-          setSelection(resolved);
+          const selectionWithTargets: CanvasSelection = {
+            ...resolved,
+            styleTargets: msg.selection.styleTargets ?? {},
+          };
+          selectionRef.current = selectionWithTargets;
+          setSelection(selectionWithTargets);
         } catch {
           selectionRef.current = msg.selection;
           setSelection(msg.selection);
@@ -103,16 +107,21 @@ export default function App() {
   }
 
   async function changeNumericStyle(property: string, computedKey: string, delta: number) {
-    if (!selection?.source?.styleFile || !selection.source.styleSelector) return;
+    if (!selection) return;
     const current = Number.parseFloat(selection.styles[computedKey] ?? "");
     if (!Number.isFinite(current)) return;
+
+    const exactTarget = selection.styleTargets?.[property];
+    const file = exactTarget?.file || selection.source?.styleFile || "";
+    const selector = exactTarget?.selector || selection.source?.styleSelector || "";
+    if (!file || !selector) return;
 
     const next = Math.max(0, current + delta);
     const nextValue = `${next}px`;
 
     previewCanvasStyle(
       iframeRef.current,
-      selection.source.styleSelector,
+      selector,
       property,
       nextValue,
       selection.selector,
@@ -120,12 +129,7 @@ export default function App() {
 
     const started = performance.now();
     try {
-      const patch = await canvasSetStylePx(
-        selection.source.styleFile,
-        selection.source.styleSelector,
-        property,
-        next,
-      );
+      const patch = await canvasSetStylePx(file, selector, property, next);
       setLastPatch(patch);
       setLastPatchMs(performance.now() - started);
       setUndoDepth(patch.undoDepth);
@@ -161,6 +165,11 @@ export default function App() {
 
   const hasNumericStyle = (key: string) =>
     Number.isFinite(Number.parseFloat(selection?.styles[key] ?? ""));
+
+  const ownerLabel = (property: string) => {
+    const target = selection?.styleTargets?.[property];
+    return target ? `${property} -> ${target.selector} · ${target.file}` : null;
+  };
 
   return <main className="app">
     <header className="topbar">
@@ -211,6 +220,12 @@ export default function App() {
               <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", -4)}>Radius -4</button>
               <button disabled={!hasNumericStyle("borderRadius")} onClick={() => changeNumericStyle("border-radius", "borderRadius", 4)}>Radius +4</button>
               <button disabled={undoDepth === 0} onClick={undoLastStyleEdit}>Undo {undoDepth ? `(${undoDepth})` : ""}</button>
+            </div>
+            <div className="styleOwners">
+              {["font-size", "gap", "border-radius"].map((property) => {
+                const label = ownerLabel(property);
+                return label ? <small key={property}>{label}</small> : null;
+              })}
             </div>
             {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
           </div> : <div className="sourceRef"><b>Source</b><span>No source metadata yet</span></div>}
