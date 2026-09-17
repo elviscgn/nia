@@ -10,6 +10,7 @@
     <pre id="nia-boot-error" hidden style="font: 13px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; padding: 24px; color: #2b2926; margin: 0;"></pre>
     <script type="module">
       const fallback = document.getElementById("nia-boot-error");
+      const sleep = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
       const showBootError = (error) => {
         if (!fallback) return;
         const detail = error instanceof Error
@@ -22,18 +23,27 @@
       window.addEventListener("error", (event) => showBootError(event.error || event.message));
       window.addEventListener("unhandledrejection", (event) => showBootError(event.reason));
 
-      try {
-        await import("/src/main.tsx");
-      } catch (error) {
-        showBootError(error);
+      let bootError = null;
+      for (let attempt = 0; attempt < 24; attempt += 1) {
+        try {
+          await import(`/src/main.tsx?niaBoot=${attempt}`);
+          bootError = null;
+          break;
+        } catch (error) {
+          bootError = error;
+          if (attempt < 23) await sleep(250);
+        }
       }
 
-      window.setTimeout(() => {
-        if (!document.querySelector(".app") && fallback?.hidden) {
-          fallback.textContent = "Nia frontend did not mount after 3 seconds. Check the dev terminal and module error above.";
-          fallback.hidden = false;
-        }
-      }, 3000);
+      if (bootError) {
+        showBootError(bootError);
+      } else {
+        window.setTimeout(() => {
+          if (!document.querySelector(".app")) {
+            showBootError(new Error("frontend module loaded but React did not mount"));
+          }
+        }, 1500);
+      }
     </script>
   </body>
 </html>
