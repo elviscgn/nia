@@ -239,12 +239,10 @@ impl ScratchState {
     }
 }
 
-#[tauri::command]
 pub fn scratch_get(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn scratch_report_selection(
     selection: ScratchSelection,
     state: tauri::State<'_, ScratchState>,
@@ -253,7 +251,6 @@ pub fn scratch_report_selection(
     Ok(())
 }
 
-#[tauri::command]
 pub fn scratch_set_style_px(
     selector: String,
     property: String,
@@ -300,7 +297,6 @@ pub fn scratch_set_style_px(
     })
 }
 
-#[tauri::command]
 pub fn scratch_undo(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     let mut inner = state.inner.lock().map_err(|error| error.to_string())?;
     let previous = inner.undo.pop().ok_or_else(|| "nothing to undo".to_string())?;
@@ -316,7 +312,6 @@ pub fn scratch_undo(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnap
     })
 }
 
-#[tauri::command]
 pub fn scratch_reset(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     state.replace_document(starter_document())
 }
