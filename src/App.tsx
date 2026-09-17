@@ -4,6 +4,7 @@ import {
   CANVAS_ORIGIN,
   canvasCdpEvaluate,
   canvasHistoryState,
+  canvasReplaceClassToken,
   canvasReportSelection,
   canvasSetStylePx,
   canvasStatus,
@@ -20,6 +21,24 @@ import {
   type CanvasStylePatchResult,
   type StyleIndexState,
 } from "./lib/canvas";
+
+const PX_UTILITY_PREFIX: Record<string, string> = {
+  "font-size": "text-",
+  gap: "gap-",
+  "border-radius": "rounded-",
+  padding: "p-",
+  "margin-top": "mt-",
+  "margin-bottom": "mb-",
+};
+
+function nextArbitraryPxToken(token: string, property: string, next: number) {
+  const prefix = PX_UTILITY_PREFIX[property];
+  if (!prefix || !token.startsWith(`${prefix}[`) || !token.endsWith("px]")) return null;
+  const current = Number.parseFloat(token.slice(prefix.length + 1, -3));
+  if (!Number.isFinite(current)) return null;
+  const value = Number.isInteger(next) ? String(next) : next.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return `${prefix}[${value}px]`;
+}
 
 export default function App() {
   const [health, setHealth] = useState<CoreHealth | null>(null);
@@ -124,10 +143,22 @@ export default function App() {
     const exactTarget = selection.styleTargets?.[property];
     const file = exactTarget?.file || selection.source?.styleFile || "";
     const selector = exactTarget?.selector || selection.source?.styleSelector || "";
-    if (!file || !selector) return;
+    if (!selector) return;
 
     const next = Math.max(0, current + delta);
     const nextValue = `${next}px`;
+    const source = selection.source;
+    const oldClassToken = exactTarget?.classToken || "";
+    const nextClassToken = oldClassToken ? nextArbitraryPxToken(oldClassToken, property, next) : null;
+    const canEditClassToken = Boolean(
+      nextClassToken
+      && source?.classFile
+      && source.classValue
+      && source.classLine
+      && source.classColumn,
+    );
+
+    if (!canEditClassToken && !file) return;
 
     previewCanvasStyle(
       iframeRef.current,
@@ -139,7 +170,17 @@ export default function App() {
 
     const started = performance.now();
     try {
-      const patch = await canvasSetStylePx(file, selector, property, next);
+      const patch = canEditClassToken
+        ? await canvasReplaceClassToken(
+            source!.classFile!,
+            source!.classLine!,
+            source!.classColumn!,
+            source!.classValue!,
+            oldClassToken,
+            nextClassToken!,
+          )
+        : await canvasSetStylePx(file, selector, property, next);
+
       setLastPatch(patch);
       setLastPatchMs(performance.now() - started);
       setUndoDepth(patch.undoDepth);
