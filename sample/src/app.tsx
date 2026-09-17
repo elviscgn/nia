@@ -22,7 +22,7 @@ export default function SampleApp() {
         </nav>
       </header>
       <main className="sample-main">
-        <h1 id="hero-title" className="hero">
+        <h1 id="hero-title" className="hero text-[56px]">
           From ideas to interfaces.
         </h1>
         <p id="hero-sub" className="sub">
