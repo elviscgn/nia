@@ -9,10 +9,6 @@ type ScratchDocument = {
   js: string;
 };
 
-type ScratchWorkspaceProps = {
-  onClose: () => void;
-};
-
 const STORAGE_KEY = "nia:scratch:v1";
 
 const STARTER: ScratchDocument = {
@@ -84,7 +80,7 @@ function buildPreview(document: ScratchDocument) {
   return `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width,initial-scale=1">\n${style}\n</head>\n<body>\n${html}\n${script}\n</body>\n</html>`;
 }
 
-export default function ScratchWorkspace({ onClose }: ScratchWorkspaceProps) {
+export default function ScratchWorkspace() {
   const [document, setDocument] = useState<ScratchDocument>(() => loadScratch());
   const [previewDocument, setPreviewDocument] = useState<ScratchDocument>(document);
   const [tab, setTab] = useState<ScratchTab>("html");
@@ -124,18 +120,6 @@ export default function ScratchWorkspace({ onClose }: ScratchWorkspaceProps) {
 
   return (
     <section className="scratchWorkspace" aria-label="Scratch workspace">
-      <header className="scratchTopbar">
-        <div>
-          <strong>Scratch</strong>
-          <span>Raw HTML + CSS + JS</span>
-        </div>
-        <div className="scratchActions">
-          <span className="scratchLive">Live</span>
-          <button onClick={reset}>Reset</button>
-          <button className="scratchClose" onClick={onClose}>Back to Canvas</button>
-        </div>
-      </header>
-
       <div className="scratchBody">
         <section className="scratchEditorPane">
           <nav className="scratchTabs" aria-label="Scratch files">
@@ -165,7 +149,10 @@ export default function ScratchWorkspace({ onClose }: ScratchWorkspaceProps) {
         <section className="scratchPreviewPane">
           <div className="scratchPreviewBar">
             <span>Preview</span>
-            <span>{runtimeError ? `JS error: ${runtimeError}` : "live reload"}</span>
+            <div className="scratchPreviewMeta">
+              <span>{runtimeError ? `JS error: ${runtimeError}` : "Live"}</span>
+              <button onClick={reset}>Reset</button>
+            </div>
           </div>
           <iframe
             title="Scratch preview"
