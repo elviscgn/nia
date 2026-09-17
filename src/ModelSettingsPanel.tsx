@@ -5,6 +5,7 @@ import {
   modelTestConnection,
   type ModelSettings,
 } from "./lib/model";
+import "./model-settings.css";
 
 type Props = {
   onClose: () => void;
