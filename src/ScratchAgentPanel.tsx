@@ -16,6 +16,7 @@ export default function ScratchAgentPanel() {
   const [messages, setMessages] = useState<ScratchChatEntry[]>([]);
   const [vision, setVision] = useState<VisionContext | null>(null);
   const [visionDraft, setVisionDraft] = useState("");
+  const [referencesDraft, setReferencesDraft] = useState("");
   const [visionEditing, setVisionEditing] = useState(false);
   const [visionStatus, setVisionStatus] = useState("");
 
@@ -25,6 +26,7 @@ export default function ScratchAgentPanel() {
       .then((next) => {
         setVision(next);
         setVisionDraft(next.description);
+        setReferencesDraft(next.references.join("\n"));
       })
       .catch((error) => setVisionStatus(error instanceof Error ? error.message : String(error)));
   }, []);
@@ -40,13 +42,22 @@ export default function ScratchAgentPanel() {
     return () => window.removeEventListener("message", onMessage);
   }, []);
 
+  function resetVisionDrafts(current: VisionContext) {
+    setVisionDraft(current.description);
+    setReferencesDraft(current.references.join("\n"));
+  }
+
   async function saveVision() {
     if (!vision || !visionEditing) return;
     setVisionStatus("Saving...");
     try {
-      const next = await visionSave(visionDraft, vision.references);
+      const references = referencesDraft
+        .split("\n")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      const next = await visionSave(visionDraft, references);
       setVision(next);
-      setVisionDraft(next.description);
+      resetVisionDrafts(next);
       setVisionEditing(false);
       setVisionStatus("");
     } catch (error) {
@@ -106,7 +117,7 @@ export default function ScratchAgentPanel() {
         <div className="scratchVisionHeader">
           <b>VISION CONTEXT</b>
           <button onClick={() => {
-            if (visionEditing && vision) setVisionDraft(vision.description);
+            if (visionEditing && vision) resetVisionDrafts(vision);
             setVisionEditing((current) => !current);
             setVisionStatus("");
           }}>{visionEditing ? "Cancel" : "Edit"}</button>
@@ -117,6 +128,12 @@ export default function ScratchAgentPanel() {
               value={visionDraft}
               onChange={(event) => setVisionDraft(event.target.value)}
               placeholder="Describe the visual direction for this project..."
+            />
+            <textarea
+              className="scratchVisionReferences"
+              value={referencesDraft}
+              onChange={(event) => setReferencesDraft(event.target.value)}
+              placeholder="Reference URLs or notes, one per line"
             />
             <div className="scratchVisionFooter">
               <small>{visionStatus || "Used automatically by Scratch agent runs"}</small>
