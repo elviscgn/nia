@@ -44,8 +44,17 @@ export default function ScratchAgentPanel() {
         .then((snapshot) => setSelectionLabel(selectionLabelFromSnapshot(snapshot)))
         .catch(() => {});
     };
+    const onMessage = (event: MessageEvent) => {
+      const data = event.data as { source?: string; kind?: string } | null;
+      if (data?.source !== "nia-canvas" || data.kind !== "nia:select") return;
+      window.setTimeout(refreshSelection, 0);
+    };
     window.addEventListener("nia:scratch-selection", refreshSelection);
-    return () => window.removeEventListener("nia:scratch-selection", refreshSelection);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("nia:scratch-selection", refreshSelection);
+      window.removeEventListener("message", onMessage);
+    };
   }, []);
 
   function resetVisionDrafts(current: VisionContext) {
