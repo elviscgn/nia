@@ -10,6 +10,10 @@ type Props = {
   onClose: () => void;
 };
 
+function announceModelUpdate() {
+  window.dispatchEvent(new CustomEvent("nia:model-settings-updated"));
+}
+
 export default function ModelSettingsPanel({ onClose }: Props) {
   const [settings, setSettings] = useState<ModelSettings | null>(null);
   const [baseUrl, setBaseUrl] = useState("");
@@ -38,6 +42,7 @@ export default function ModelSettingsPanel({ onClose }: Props) {
       setSettings(next);
       setApiKey("");
       setStatus("Saved in Rust core");
+      announceModelUpdate();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : String(error));
     } finally {
@@ -54,6 +59,7 @@ export default function ModelSettingsPanel({ onClose }: Props) {
         const next = await modelSettingsSave(baseUrl, model, apiKey.trim() ? apiKey : null);
         setSettings(next);
         setApiKey("");
+        announceModelUpdate();
       }
       const result = await modelTestConnection();
       setStatus(`Connected to ${result.model} in ${result.latencyMs} ms`);
