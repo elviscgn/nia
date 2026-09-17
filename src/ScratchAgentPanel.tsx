@@ -6,6 +6,7 @@ import {
   type ScratchAgentResponse,
   type ScratchChatEntry,
 } from "./lib/agent";
+import { visionGet, visionSave, type VisionContext } from "./lib/vision";
 import "./scratch-agent.css";
 
 export default function ScratchAgentPanel() {
@@ -13,9 +14,19 @@ export default function ScratchAgentPanel() {
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [messages, setMessages] = useState<ScratchChatEntry[]>([]);
+  const [vision, setVision] = useState<VisionContext | null>(null);
+  const [visionDraft, setVisionDraft] = useState("");
+  const [visionEditing, setVisionEditing] = useState(false);
+  const [visionStatus, setVisionStatus] = useState("");
 
   useEffect(() => {
     scratchAgentHistory().then(setMessages).catch(() => {});
+    visionGet()
+      .then((next) => {
+        setVision(next);
+        setVisionDraft(next.description);
+      })
+      .catch((error) => setVisionStatus(error instanceof Error ? error.message : String(error)));
   }, []);
 
   useEffect(() => {
@@ -28,6 +39,20 @@ export default function ScratchAgentPanel() {
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, []);
+
+  async function saveVision() {
+    if (!vision || !visionEditing) return;
+    setVisionStatus("Saving...");
+    try {
+      const next = await visionSave(visionDraft, vision.references);
+      setVision(next);
+      setVisionDraft(next.description);
+      setVisionEditing(false);
+      setVisionStatus("");
+    } catch (error) {
+      setVisionStatus(error instanceof Error ? error.message : String(error));
+    }
+  }
 
   async function runAgent() {
     const requestText = prompt.trim();
@@ -77,6 +102,37 @@ export default function ScratchAgentPanel() {
 
   return (
     <div className="scratchAgentPanel">
+      <div className="scratchVisionCard">
+        <div className="scratchVisionHeader">
+          <b>VISION CONTEXT</b>
+          <button onClick={() => {
+            if (visionEditing && vision) setVisionDraft(vision.description);
+            setVisionEditing((current) => !current);
+            setVisionStatus("");
+          }}>{visionEditing ? "Cancel" : "Edit"}</button>
+        </div>
+        {visionEditing ? (
+          <>
+            <textarea
+              value={visionDraft}
+              onChange={(event) => setVisionDraft(event.target.value)}
+              placeholder="Describe the visual direction for this project..."
+            />
+            <div className="scratchVisionFooter">
+              <small>{visionStatus || "Used automatically by Scratch agent runs"}</small>
+              <button onClick={() => void saveVision()} disabled={!vision}>Save</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p>{vision?.description || "Loading project vision..."}</p>
+            <small>
+              Project vision{vision ? ` · ${vision.references.length} refs · v${vision.version}` : ""}
+            </small>
+          </>
+        )}
+      </div>
+
       <div className="scratchAgentChat">
         {messages.map((message, index) => (
           <div key={`${message.role}-${index}`} className={`scratchAgentMessage ${message.role}`}>
@@ -91,7 +147,7 @@ export default function ScratchAgentPanel() {
       <div className="scratchAgentComposer">
         <div className="scratchAgentChips">
           <span>Scratch</span>
-          <span>Vision</span>
+          <span>{vision ? `Vision v${vision.version}` : "Vision"}</span>
           {selectionLabel ? <span>{selectionLabel}</span> : null}
         </div>
         <textarea
