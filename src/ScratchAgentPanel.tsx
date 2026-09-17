@@ -1,18 +1,24 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
-import { parseCanvasMessage, type CanvasSelection } from "./lib/canvas";
 import {
   scratchAgentHistory,
   scratchAgentRun,
   type ScratchAgentResponse,
   type ScratchChatEntry,
 } from "./lib/agent";
+import { scratchGet } from "./lib/scratch";
 import { visionGet, visionSave, type VisionContext } from "./lib/vision";
 import "./scratch-agent.css";
+
+function selectionLabelFromSnapshot(snapshot: Awaited<ReturnType<typeof scratchGet>>) {
+  const selection = snapshot.selection;
+  if (!selection) return null;
+  return `${selection.tag}${selection.id ? `#${selection.id}` : ""}${selection.classes[0] ? `.${selection.classes[0]}` : ""}`;
+}
 
 export default function ScratchAgentPanel() {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
-  const [selection, setSelection] = useState<CanvasSelection | null>(null);
+  const [selectionLabel, setSelectionLabel] = useState<string | null>(null);
   const [messages, setMessages] = useState<ScratchChatEntry[]>([]);
   const [vision, setVision] = useState<VisionContext | null>(null);
   const [visionDraft, setVisionDraft] = useState("");
@@ -22,6 +28,7 @@ export default function ScratchAgentPanel() {
 
   useEffect(() => {
     scratchAgentHistory().then(setMessages).catch(() => {});
+    scratchGet().then((snapshot) => setSelectionLabel(selectionLabelFromSnapshot(snapshot))).catch(() => {});
     visionGet()
       .then((next) => {
         setVision(next);
@@ -32,14 +39,13 @@ export default function ScratchAgentPanel() {
   }, []);
 
   useEffect(() => {
-    const onMessage = (event: MessageEvent) => {
-      const message = parseCanvasMessage(event);
-      if (message?.kind !== "nia:select") return;
-      if (message.selection.sourceUrl !== "scratch://index.html") return;
-      setSelection(message.selection);
+    const refreshSelection = () => {
+      void scratchGet()
+        .then((snapshot) => setSelectionLabel(selectionLabelFromSnapshot(snapshot)))
+        .catch(() => {});
     };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    window.addEventListener("nia:scratch-selection", refreshSelection);
+    return () => window.removeEventListener("nia:scratch-selection", refreshSelection);
   }, []);
 
   function resetVisionDrafts(current: VisionContext) {
@@ -79,6 +85,7 @@ export default function ScratchAgentPanel() {
     try {
       const response: ScratchAgentResponse = await scratchAgentRun({ prompt: requestText });
       setMessages(response.history);
+      setSelectionLabel(null);
       window.dispatchEvent(new CustomEvent("nia:scratch-updated", {
         detail: {
           document: response.document,
@@ -106,10 +113,6 @@ export default function ScratchAgentPanel() {
       void runAgent();
     }
   }
-
-  const selectionLabel = selection
-    ? `${selection.tag}${selection.id ? `#${selection.id}` : ""}${selection.classes[0] ? `.${selection.classes[0]}` : ""}`
-    : null;
 
   return (
     <div className="scratchAgentPanel">
