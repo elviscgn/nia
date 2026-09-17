@@ -1,16 +1,29 @@
 use crate::model_core::ModelState;
 use crate::scratch_core::{ScratchDocument, ScratchSelection, ScratchState};
 use serde::{Deserialize, Serialize};
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 const MAX_DOCUMENT_BYTES: usize = 1_000_000;
 const MAX_PROMPT_BYTES: usize = 24_000;
+const MAX_HISTORY_ENTRIES: usize = 80;
 const DEFAULT_VISION: &str = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
+const STARTER_MESSAGE: &str = "Describe what you want to build or change in Scratch.";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScratchAgentRequest {
     prompt: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScratchChatEntry {
+    role: String,
+    text: String,
+    meta: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -22,6 +35,13 @@ pub struct ScratchAgentResponse {
     latency_ms: u128,
     undo_depth: usize,
     version: u64,
+    history: Vec<ScratchChatEntry>,
+}
+
+#[derive(Debug)]
+pub struct ScratchAgentState {
+    history: Mutex<Vec<ScratchChatEntry>>,
+    path: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,6 +65,104 @@ struct ModelEdit {
     css: String,
     js: String,
     summary: String,
+}
+
+struct CompletedEdit {
+    document: ScratchDocument,
+    summary: String,
+    model: String,
+    latency_ms: u128,
+    undo_depth: usize,
+    version: u64,
+}
+
+fn history_path() -> PathBuf {
+    if let Ok(value) = std::env::var("NIA_STATE_DIR") {
+        if !value.trim().is_empty() {
+            return PathBuf::from(value).join("scratch-chat.json");
+        }
+    }
+
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home).join(".nia").join("scratch-chat.json")
+}
+
+fn starter_history() -> Vec<ScratchChatEntry> {
+    vec![ScratchChatEntry {
+        role: "assistant".to_string(),
+        text: STARTER_MESSAGE.to_string(),
+        meta: None,
+    }]
+}
+
+fn load_history(path: &PathBuf) -> Vec<ScratchChatEntry> {
+    let Ok(raw) = fs::read_to_string(path) else {
+        return starter_history();
+    };
+    let Ok(mut history) = serde_json::from_str::<Vec<ScratchChatEntry>>(&raw) else {
+        return starter_history();
+    };
+    if history.is_empty() {
+        return starter_history();
+    }
+    if history.len() > MAX_HISTORY_ENTRIES {
+        history.drain(0..history.len() - MAX_HISTORY_ENTRIES);
+    }
+    history
+}
+
+fn persist_history(path: &PathBuf, history: &[ScratchChatEntry]) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create scratch agent state directory: {error}"))?;
+    }
+    let json = serde_json::to_string_pretty(history)
+        .map_err(|error| format!("failed to serialize scratch agent history: {error}"))?;
+    let temp = path.with_extension("json.tmp");
+    fs::write(&temp, json)
+        .map_err(|error| format!("failed to write scratch agent history: {error}"))?;
+    fs::rename(&temp, path)
+        .map_err(|error| format!("failed to commit scratch agent history: {error}"))?;
+    Ok(())
+}
+
+impl ScratchAgentState {
+    pub fn load() -> Self {
+        let path = history_path();
+        let history = load_history(&path);
+        Self {
+            history: Mutex::new(history),
+            path,
+        }
+    }
+
+    fn snapshot(&self) -> Result<Vec<ScratchChatEntry>, String> {
+        Ok(self.history.lock().map_err(|error| error.to_string())?.clone())
+    }
+
+    fn push(&self, role: &str, text: String, meta: Option<String>) -> Result<Vec<ScratchChatEntry>, String> {
+        let mut history = self.history.lock().map_err(|error| error.to_string())?;
+        history.push(ScratchChatEntry {
+            role: role.to_string(),
+            text,
+            meta,
+        });
+        if history.len() > MAX_HISTORY_ENTRIES {
+            let overflow = history.len() - MAX_HISTORY_ENTRIES;
+            history.drain(0..overflow);
+        }
+        persist_history(&self.path, &history)?;
+        Ok(history.clone())
+    }
+
+    fn clear(&self) -> Result<Vec<ScratchChatEntry>, String> {
+        let mut history = self.history.lock().map_err(|error| error.to_string())?;
+        *history = starter_history();
+        persist_history(&self.path, &history)?;
+        Ok(history.clone())
+    }
 }
 
 fn trim_json_fence(value: &str) -> &str {
@@ -86,15 +204,14 @@ fn selection_context(selection: &Option<ScratchSelection>) -> serde_json::Value 
     }
 }
 
-#[tauri::command]
-pub async fn scratch_agent_run(
-    request: ScratchAgentRequest,
-    scratch_state: tauri::State<'_, ScratchState>,
-    model_state: tauri::State<'_, ModelState>,
-) -> Result<ScratchAgentResponse, String> {
+async fn execute_edit(
+    request: &ScratchAgentRequest,
+    scratch_state: &ScratchState,
+    model_state: &ModelState,
+) -> Result<CompletedEdit, String> {
     let document = scratch_state.document()?;
     let selection = scratch_state.selection()?;
-    validate_request(&request, &document)?;
+    validate_request(request, &document)?;
 
     let provider = model_state.resolve()?;
     let model = provider.model.clone();
@@ -168,7 +285,7 @@ pub async fn scratch_agent_run(
 
     let snapshot = scratch_state.replace_document(next)?;
 
-    Ok(ScratchAgentResponse {
+    Ok(CompletedEdit {
         document: snapshot.document,
         summary: edit.summary,
         model,
@@ -176,4 +293,57 @@ pub async fn scratch_agent_run(
         undo_depth: snapshot.undo_depth,
         version: snapshot.version,
     })
+}
+
+#[tauri::command]
+pub fn scratch_agent_history(
+    state: tauri::State<'_, ScratchAgentState>,
+) -> Result<Vec<ScratchChatEntry>, String> {
+    state.snapshot()
+}
+
+#[tauri::command]
+pub fn scratch_agent_clear_history(
+    state: tauri::State<'_, ScratchAgentState>,
+) -> Result<Vec<ScratchChatEntry>, String> {
+    state.clear()
+}
+
+#[tauri::command]
+pub async fn scratch_agent_run(
+    request: ScratchAgentRequest,
+    scratch_state: tauri::State<'_, ScratchState>,
+    model_state: tauri::State<'_, ModelState>,
+    agent_state: tauri::State<'_, ScratchAgentState>,
+) -> Result<ScratchAgentResponse, String> {
+    let document = scratch_state.document()?;
+    validate_request(&request, &document)?;
+
+    let prompt = request.prompt.trim().to_string();
+    agent_state.push("user", prompt, None)?;
+
+    match execute_edit(&request, &scratch_state, &model_state).await {
+        Ok(edit) => {
+            let summary = if edit.summary.trim().is_empty() {
+                "Updated Scratch.".to_string()
+            } else {
+                edit.summary.clone()
+            };
+            let meta = Some(format!("{} · {} ms", edit.model, edit.latency_ms));
+            let history = agent_state.push("assistant", summary.clone(), meta)?;
+            Ok(ScratchAgentResponse {
+                document: edit.document,
+                summary,
+                model: edit.model,
+                latency_ms: edit.latency_ms,
+                undo_depth: edit.undo_depth,
+                version: edit.version,
+                history,
+            })
+        }
+        Err(error) => {
+            let _ = agent_state.push("error", error.clone(), None);
+            Err(error)
+        }
+    }
 }
