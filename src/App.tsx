@@ -168,7 +168,9 @@ export default function App() {
 
   const ownerLabel = (property: string) => {
     const target = selection?.styleTargets?.[property];
-    return target ? `${property} -> ${target.selector} · ${target.file}` : null;
+    if (!target) return null;
+    const owner = target.classToken ? `class ${target.classToken}` : target.selector;
+    return `${property} -> ${owner} · ${target.file}`;
   };
 
   return <main className="app">
