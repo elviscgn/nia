@@ -1,6 +1,7 @@
 mod model_core;
 mod scratch_agent;
 mod scratch_core;
+mod vision_core;
 
 mod legacy {
     use super::model_core::{
@@ -23,6 +24,7 @@ mod legacy {
         scratch_undo,
         ScratchState,
     };
+    use super::vision_core::{vision_get, vision_save, VisionState};
 
     include!("main.rs");
 
@@ -42,6 +44,7 @@ mod legacy {
             .manage(ModelState::load())
             .manage(ScratchState::load())
             .manage(ScratchAgentState::load())
+            .manage(VisionState::load())
             .invoke_handler(tauri::generate_handler![
                 ping,
                 core_health,
@@ -67,7 +70,9 @@ mod legacy {
                 scratch_reset,
                 scratch_agent_history,
                 scratch_agent_clear_history,
-                scratch_agent_run
+                scratch_agent_run,
+                vision_get,
+                vision_save
             ])
             .run(tauri::generate_context!())
             .expect("error while running Nia");
