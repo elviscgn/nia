@@ -3,7 +3,6 @@ import type { ScratchDocument } from "./scratch";
 
 export type ScratchAgentRequest = {
   prompt: string;
-  vision: string;
 };
 
 export type ScratchAgentResponse = {
