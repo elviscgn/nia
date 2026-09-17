@@ -9,7 +9,12 @@ mod legacy {
         model_test_connection,
         ModelState,
     };
-    use super::scratch_agent::scratch_agent_run;
+    use super::scratch_agent::{
+        scratch_agent_clear_history,
+        scratch_agent_history,
+        scratch_agent_run,
+        ScratchAgentState,
+    };
     use super::scratch_core::{
         scratch_get,
         scratch_report_selection,
@@ -36,6 +41,7 @@ mod legacy {
             })
             .manage(ModelState::load())
             .manage(ScratchState::load())
+            .manage(ScratchAgentState::load())
             .invoke_handler(tauri::generate_handler![
                 ping,
                 core_health,
@@ -59,6 +65,8 @@ mod legacy {
                 scratch_set_style_px,
                 scratch_undo,
                 scratch_reset,
+                scratch_agent_history,
+                scratch_agent_clear_history,
                 scratch_agent_run
             ])
             .run(tauri::generate_context!())
