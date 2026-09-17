@@ -1,10 +1,12 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { initNiaCanvasBridge } from "./instrument";
 import "./styles.css";
 
 // Tiny sample app. Deliberately plain so the canvas can prove inspection,
 // automatic source identity, deterministic source edits, and HMR.
 export default function SampleApp() {
+  const [clicks, setClicks] = useState(0);
+
   useEffect(() => {
     initNiaCanvasBridge();
   }, []);
@@ -26,8 +28,8 @@ export default function SampleApp() {
         <p id="hero-sub" className="sub">
           A visual coding workspace for humans and agents.
         </p>
-        <button id="hero-cta" className="cta primary">
-          Start building
+        <button id="hero-cta" className="cta primary" onClick={() => setClicks((count) => count + 1)}>
+          {clicks === 0 ? "Start building" : `Clicked ${clicks}`}
         </button>
         <section className="cards" id="feature-cards">
           <article className="card" id="card-canvas">

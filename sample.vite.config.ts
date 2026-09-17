@@ -20,8 +20,9 @@ function niaSourcePlugin({ types: t }: { types: any }) {
           ? `sample/${normalized.slice(sampleIndex + sampleMarker.length)}`
           : normalized;
 
+        const attributes = nodePath.node.attributes;
         const existing = new Set(
-          nodePath.node.attributes
+          attributes
             .filter((attr: any) => t.isJSXAttribute(attr) && t.isJSXIdentifier(attr.name))
             .map((attr: any) => attr.name.name),
         );
@@ -36,6 +37,21 @@ function niaSourcePlugin({ types: t }: { types: any }) {
         add("data-nia-source-file", sourceFile);
         add("data-nia-source-line", String(loc.line));
         add("data-nia-source-column", String(loc.column + 1));
+
+        const classNameAttr = attributes.find(
+          (attr: any) =>
+            t.isJSXAttribute(attr)
+            && t.isJSXIdentifier(attr.name, { name: "className" })
+            && t.isStringLiteral(attr.value),
+        );
+
+        if (classNameAttr && t.isStringLiteral(classNameAttr.value)) {
+          const classLoc = classNameAttr.loc?.start ?? loc;
+          add("data-nia-class-file", sourceFile);
+          add("data-nia-class-line", String(classLoc.line));
+          add("data-nia-class-column", String(classLoc.column + 1));
+          add("data-nia-class-value", classNameAttr.value.value);
+        }
       },
     },
   };

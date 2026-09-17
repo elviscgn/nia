@@ -1,6 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 
 export type CanvasRect = { x: number; y: number; width: number; height: number };
+export type CanvasMode = "inspect" | "interact";
+
+export type CanvasStyleTarget = {
+  file: string;
+  selector: string;
+  property: string;
+  value: string;
+  important: boolean;
+  classToken?: string;
+};
 
 export type CanvasSourceRef = {
   file: string;
@@ -9,6 +19,10 @@ export type CanvasSourceRef = {
   styleFile: string;
   styleSelector: string;
   styleLine: number;
+  classFile?: string;
+  classLine?: number;
+  classColumn?: number;
+  classValue?: string;
 };
 
 export type CanvasSelection = {
@@ -19,6 +33,7 @@ export type CanvasSelection = {
   path: string[];
   selector: string;
   styles: Record<string, string>;
+  styleTargets: Record<string, CanvasStyleTarget>;
   text: string;
   sourceUrl: string;
   source: CanvasSourceRef | null;
@@ -47,6 +62,12 @@ export type CanvasHistoryState = {
   undoDepth: number;
 };
 
+export type StyleIndexState = {
+  version: number;
+  fileCount: number;
+  ruleCount: number;
+};
+
 export const CANVAS_ORIGIN = "http://127.0.0.1:1421";
 
 export const canvasSampleUrl = () => invoke<string>("canvas_sample_url");
@@ -58,6 +79,7 @@ export const canvasReportSelection = (selection: CanvasSelection) =>
 export const canvasSelection = () => invoke<CanvasSelection | null>("canvas_selection");
 export const canvasClearSelection = () => invoke<void>("canvas_clear_selection");
 export const canvasHistoryState = () => invoke<CanvasHistoryState>("canvas_history_state");
+export const canvasStyleIndexState = () => invoke<StyleIndexState>("canvas_style_index_state");
 export const canvasUndoStyle = () => invoke<CanvasUndoResult>("canvas_undo_style");
 
 export const canvasCdpEvaluate = (expression: string) =>
@@ -88,6 +110,13 @@ export function parseCanvasMessage(event: MessageEvent): CanvasInbound | null {
     return { kind: "nia:select", selection: data.selection };
   }
   return null;
+}
+
+export function setCanvasMode(iframe: HTMLIFrameElement | null, mode: CanvasMode) {
+  iframe?.contentWindow?.postMessage(
+    { source: "nia-shell", kind: "nia:mode", mode },
+    CANVAS_ORIGIN,
+  );
 }
 
 export function requestCanvasInspect(iframe: HTMLIFrameElement | null, selector: string) {

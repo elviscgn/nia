@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Component, Path, PathBuf};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{sync_channel, RecvTimeoutError, SyncSender};
+use std::sync::{Arc, Mutex, RwLock};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use tauri_runtime_cef::{allocate_devtools_message_id, DevToolsProtocol, WebviewCefExt};
 
@@ -11,6 +12,7 @@ struct CoreStarted(Instant);
 
 const CANVAS_SAMPLE_URL: &str = "http://127.0.0.1:1421";
 const MAX_EDIT_HISTORY: usize = 100;
+const STYLE_INDEX_POLL_MS: u64 = 350;
 
 #[derive(Serialize)]
 struct CoreHealth {
@@ -92,11 +94,32 @@ struct CanvasHistoryState {
     undo_depth: usize,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StyleIndexState {
+    version: u64,
+    file_count: usize,
+    rule_count: usize,
+}
+
 #[derive(Debug, Clone)]
 struct StyleRuleRef {
     file: String,
     selector: String,
     line: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StyleFileStamp {
+    len: u64,
+    modified_ns: u128,
+}
+
+#[derive(Debug, Clone)]
+struct StyleIndexSnapshot {
+    rules: Vec<StyleRuleRef>,
+    files: BTreeMap<String, StyleFileStamp>,
+    version: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -113,12 +136,51 @@ struct CanvasState {
     selection: Mutex<Option<CanvasSelection>>,
 }
 
+#[derive(Clone)]
 struct StyleIndex {
-    rules: Mutex<Vec<StyleRuleRef>>,
+    snapshot: Arc<RwLock<StyleIndexSnapshot>>,
+    refresh_tx: SyncSender<()>,
 }
 
 struct EditHistory {
     undo: Mutex<Vec<CanvasEdit>>,
+}
+
+impl StyleIndex {
+    fn start() -> Self {
+        let snapshot = Arc::new(RwLock::new(build_style_index_snapshot(1)));
+        let (refresh_tx, refresh_rx) = sync_channel::<()>(1);
+        let worker_snapshot = Arc::clone(&snapshot);
+
+        let _ = std::thread::Builder::new()
+            .name("nia-style-index".to_string())
+            .spawn(move || loop {
+                match refresh_rx.recv_timeout(Duration::from_millis(STYLE_INDEX_POLL_MS)) {
+                    Ok(()) | Err(RecvTimeoutError::Timeout) => {
+                        let _ = refresh_style_index_if_changed(&worker_snapshot);
+                    }
+                    Err(RecvTimeoutError::Disconnected) => break,
+                }
+            });
+
+        Self {
+            snapshot,
+            refresh_tx,
+        }
+    }
+
+    fn request_refresh(&self) {
+        let _ = self.refresh_tx.try_send(());
+    }
+
+    fn state(&self) -> Result<StyleIndexState, String> {
+        let snapshot = self.snapshot.read().map_err(|error| error.to_string())?;
+        Ok(StyleIndexState {
+            version: snapshot.version,
+            file_count: snapshot.files.len(),
+            rule_count: snapshot.rules.len(),
+        })
+    }
 }
 
 #[tauri::command]
@@ -222,6 +284,43 @@ fn collect_css_files(dir: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
+fn css_files() -> Vec<PathBuf> {
+    let Ok(root) = project_root() else {
+        return Vec::new();
+    };
+
+    let mut files = Vec::new();
+    collect_css_files(&root, &mut files);
+    files.sort();
+    files
+}
+
+fn style_file_stamp(path: &Path) -> Option<StyleFileStamp> {
+    let metadata = std::fs::metadata(path).ok()?;
+    let modified_ns = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+
+    Some(StyleFileStamp {
+        len: metadata.len(),
+        modified_ns,
+    })
+}
+
+fn style_fingerprint(paths: &[PathBuf]) -> BTreeMap<String, StyleFileStamp> {
+    paths
+        .iter()
+        .filter_map(|path| {
+            let file = relative_project_path(path).ok()?;
+            let stamp = style_file_stamp(path)?;
+            Some((file, stamp))
+        })
+        .collect()
+}
+
 fn index_css_file(path: &Path, css: &str) -> Vec<StyleRuleRef> {
     let Ok(file) = relative_project_path(path) else {
         return Vec::new();
@@ -255,22 +354,39 @@ fn index_css_file(path: &Path, css: &str) -> Vec<StyleRuleRef> {
     rules
 }
 
-fn build_style_index() -> Vec<StyleRuleRef> {
-    let Ok(root) = project_root() else {
-        return Vec::new();
-    };
-
-    let mut css_files = Vec::new();
-    collect_css_files(&root, &mut css_files);
-
+fn build_style_index_snapshot(version: u64) -> StyleIndexSnapshot {
+    let paths = css_files();
+    let files = style_fingerprint(&paths);
     let mut rules = Vec::new();
-    for path in css_files {
+
+    for path in paths {
         let Ok(css) = std::fs::read_to_string(&path) else {
             continue;
         };
         rules.extend(index_css_file(&path, &css));
     }
-    rules
+
+    StyleIndexSnapshot {
+        rules,
+        files,
+        version,
+    }
+}
+
+fn refresh_style_index_if_changed(snapshot: &Arc<RwLock<StyleIndexSnapshot>>) -> Result<bool, String> {
+    let paths = css_files();
+    let files = style_fingerprint(&paths);
+    let current_version = {
+        let current = snapshot.read().map_err(|error| error.to_string())?;
+        if current.files == files {
+            return Ok(false);
+        }
+        current.version
+    };
+
+    let next = build_style_index_snapshot(current_version.saturating_add(1));
+    *snapshot.write().map_err(|error| error.to_string())? = next;
+    Ok(true)
 }
 
 fn selector_score(rule: &str, selection: &CanvasSelection) -> i32 {
@@ -321,11 +437,12 @@ fn resolve_style_source(selection: &mut CanvasSelection, style_index: &StyleInde
         .parent()
         .map(|path| path.to_string_lossy().replace('\\', "/"));
 
-    let Ok(rules) = style_index.rules.lock() else {
+    let Ok(snapshot) = style_index.snapshot.read() else {
         return;
     };
 
-    let best = rules
+    let best = snapshot
+        .rules
         .iter()
         .filter_map(|rule| {
             let mut score = selector_score(&rule.selector, selection);
@@ -344,7 +461,7 @@ fn resolve_style_source(selection: &mut CanvasSelection, style_index: &StyleInde
         .max_by_key(|(score, _)| *score)
         .map(|(_, rule)| rule.clone());
 
-    drop(rules);
+    drop(snapshot);
 
     if let (Some(source), Some(rule)) = (selection.source.as_mut(), best) {
         source.style_file = rule.file;
@@ -359,6 +476,7 @@ fn canvas_report_selection(
     canvas_state: tauri::State<'_, CanvasState>,
     style_index: tauri::State<'_, StyleIndex>,
 ) -> Result<CanvasSelection, String> {
+    style_index.request_refresh();
     resolve_style_source(&mut selection, &style_index);
     *canvas_state.selection.lock().map_err(|error| error.to_string())? = Some(selection.clone());
     Ok(selection)
@@ -379,6 +497,11 @@ fn canvas_clear_selection(state: tauri::State<'_, CanvasState>) -> Result<(), St
 fn canvas_history_state(history: tauri::State<'_, EditHistory>) -> Result<CanvasHistoryState, String> {
     let undo_depth = history.undo.lock().map_err(|error| error.to_string())?.len();
     Ok(CanvasHistoryState { undo_depth })
+}
+
+#[tauri::command]
+fn canvas_style_index_state(style_index: tauri::State<'_, StyleIndex>) -> Result<StyleIndexState, String> {
+    style_index.state()
 }
 
 fn allowed_numeric_property(property: &str) -> bool {
@@ -473,6 +596,7 @@ async fn canvas_set_style_px(
     property: String,
     value_px: f64,
     history: tauri::State<'_, EditHistory>,
+    style_index: tauri::State<'_, StyleIndex>,
 ) -> Result<CanvasStylePatchResult, String> {
     let path = safe_project_file(&file)?;
     if path.extension().and_then(|extension| extension.to_str()) != Some("css") {
@@ -519,6 +643,8 @@ async fn canvas_set_style_px(
         undo.len()
     };
 
+    style_index.request_refresh();
+
     Ok(CanvasStylePatchResult {
         file,
         selector,
@@ -530,7 +656,10 @@ async fn canvas_set_style_px(
 }
 
 #[tauri::command]
-async fn canvas_undo_style(history: tauri::State<'_, EditHistory>) -> Result<CanvasUndoResult, String> {
+async fn canvas_undo_style(
+    history: tauri::State<'_, EditHistory>,
+    style_index: tauri::State<'_, StyleIndex>,
+) -> Result<CanvasUndoResult, String> {
     let edit = {
         let mut undo = history.undo.lock().map_err(|error| error.to_string())?;
         undo.pop().ok_or_else(|| "nothing to undo".to_string())?
@@ -555,6 +684,7 @@ async fn canvas_undo_style(history: tauri::State<'_, EditHistory>) -> Result<Can
         .map_err(|error| format!("failed to restore {}: {error}", path.display()))?;
 
     let undo_depth = history.undo.lock().map_err(|error| error.to_string())?.len();
+    style_index.request_refresh();
 
     Ok(CanvasUndoResult {
         file: edit.file,
@@ -622,7 +752,7 @@ where
 }
 
 fn main() {
-    let style_rules = build_style_index();
+    let style_index = StyleIndex::start();
 
     tauri::Builder::default()
         .runtime(tauri_runtime_cef::Cef::default())
@@ -630,9 +760,7 @@ fn main() {
         .manage(CanvasState {
             selection: Mutex::new(None),
         })
-        .manage(StyleIndex {
-            rules: Mutex::new(style_rules),
-        })
+        .manage(style_index)
         .manage(EditHistory {
             undo: Mutex::new(Vec::new()),
         })
@@ -646,6 +774,7 @@ fn main() {
             canvas_selection,
             canvas_clear_selection,
             canvas_history_state,
+            canvas_style_index_state,
             canvas_set_style_px,
             canvas_undo_style,
             canvas_cdp_evaluate
