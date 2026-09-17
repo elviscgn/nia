@@ -9,6 +9,7 @@ import { loadScratchDocument, saveScratchDocument } from "./lib/scratch";
 import "./scratch-agent.css";
 
 const VISION = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
+const CHAT_KEY = "nia:scratch-agent-chat:v1";
 
 type ChatEntry = {
   role: "user" | "assistant" | "error";
@@ -20,13 +21,28 @@ type ScratchAgentPanelProps = {
   onApplied: () => void;
 };
 
+function loadChat(): ChatEntry[] {
+  try {
+    const raw = window.localStorage.getItem(CHAT_KEY);
+    if (!raw) return [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
+    const parsed = JSON.parse(raw) as ChatEntry[];
+    return Array.isArray(parsed) && parsed.length
+      ? parsed
+      : [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
+  } catch {
+    return [{ role: "assistant", text: "Describe what you want to build or change in Scratch." }];
+  }
+}
+
 export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps) {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
-  const [messages, setMessages] = useState<ChatEntry[]>([
-    { role: "assistant", text: "Describe what you want to build or change in Scratch." },
-  ]);
+  const [messages, setMessages] = useState<ChatEntry[]>(() => loadChat());
+
+  useEffect(() => {
+    window.localStorage.setItem(CHAT_KEY, JSON.stringify(messages.slice(-80)));
+  }, [messages]);
 
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
