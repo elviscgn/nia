@@ -1,92 +1,60 @@
+import { invoke } from "@tauri-apps/api/core";
+import type { CanvasSelection } from "./canvas";
+
 export type ScratchDocument = {
   html: string;
   css: string;
   js: string;
 };
 
-const STORAGE_KEY = "nia:scratch:v2";
-
-export const STARTER_SCRATCH: ScratchDocument = {
-  html: `<main class="landing">
-  <p class="eyebrow">Nia Scratch</p>
-  <h1>Build the idea first.</h1>
-  <p class="lede">Raw HTML, CSS, and JavaScript. No framework in the way.</p>
-  <button id="action">Try it</button>
-  <p id="status" class="status">Ready.</p>
-</main>`,
-  css: `* { box-sizing: border-box; }
-body {
-  margin: 0;
-  min-height: 100vh;
-  display: grid;
-  place-items: center;
-  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
-  color: #191813;
-  background: #f5f2e9;
-}
-.landing { width: min(680px, calc(100vw - 48px)); }
-.eyebrow { color: #9a6a00; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-h1 { margin: 12px 0; font-size: 72px; line-height: .94; letter-spacing: -.05em; }
-.lede { max-width: 520px; color: #69655c; font-size: 18px; line-height: 1.6; }
-button { margin-top: 20px; border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 700; background: #d79a08; color: #1d1708; cursor: pointer; }
-.status { margin-top: 18px; color: #7d776d; }`,
-  js: `const button = document.querySelector("#action");
-const status = document.querySelector("#status");
-let clicks = 0;
-button?.addEventListener("click", () => {
-  clicks += 1;
-  if (status) status.textContent = \`Clicked \${clicks} time\${clicks === 1 ? "" : "s"}.\`;
-});`,
+export type ScratchSelection = {
+  selector: string;
+  tag: string;
+  id: string;
+  classes: string[];
+  text: string;
+  styles: Record<string, string>;
 };
 
-export function loadScratchDocument(): ScratchDocument {
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return STARTER_SCRATCH;
-    const parsed = JSON.parse(raw) as Partial<ScratchDocument>;
-    return {
-      html: typeof parsed.html === "string" ? parsed.html : STARTER_SCRATCH.html,
-      css: typeof parsed.css === "string" ? parsed.css : STARTER_SCRATCH.css,
-      js: typeof parsed.js === "string" ? parsed.js : STARTER_SCRATCH.js,
-    };
-  } catch {
-    return STARTER_SCRATCH;
-  }
-}
+export type ScratchSnapshot = {
+  document: ScratchDocument;
+  selection: ScratchSelection | null;
+  undoDepth: number;
+  version: number;
+};
 
-export function saveScratchDocument(document: ScratchDocument) {
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(document));
-}
+export type ScratchStylePatchResult = {
+  file: string;
+  selector: string;
+  property: string;
+  previousValue: string | null;
+  value: string;
+  undoDepth: number;
+  document: ScratchDocument;
+  version: number;
+};
 
-export function patchScratchCss(
-  css: string,
+export const scratchGet = () => invoke<ScratchSnapshot>("scratch_get");
+export const scratchUndo = () => invoke<ScratchSnapshot>("scratch_undo");
+export const scratchReset = () => invoke<ScratchSnapshot>("scratch_reset");
+
+export const scratchSetStylePx = (
   selector: string,
   property: string,
-  value: string,
-) {
-  const marker = "/* nia:visual-edits */";
-  const safeSelector = selector.trim();
-  if (!safeSelector) return css;
-  const nextRule = `${safeSelector} { ${property}: ${value} !important; }`;
-  const block = `${marker}\n${nextRule}`;
-  const markerIndex = css.indexOf(marker);
-  if (markerIndex < 0) return `${css.trimEnd()}\n\n${block}\n`;
+  valuePx: number,
+) => invoke<ScratchStylePatchResult>("scratch_set_style_px", { selector, property, valuePx });
 
-  const before = css.slice(0, markerIndex).trimEnd();
-  const existing = css.slice(markerIndex + marker.length).trim();
-  const lines = existing.split("\n").filter(Boolean);
-  const prefix = `${safeSelector} { ${property}:`;
-  let replaced = false;
-  const updated = lines.map((line) => {
-    if (!replaced && line.trim().startsWith(prefix)) {
-      replaced = true;
-      return nextRule;
-    }
-    return line;
+export const scratchReportSelection = (selection: CanvasSelection) =>
+  invoke<void>("scratch_report_selection", {
+    selection: {
+      selector: selection.selector,
+      tag: selection.tag,
+      id: selection.id,
+      classes: selection.classes,
+      text: selection.text,
+      styles: selection.styles,
+    } satisfies ScratchSelection,
   });
-  if (!replaced) updated.push(nextRule);
-  return `${before}\n\n${marker}\n${updated.join("\n")}\n`;
-}
 
 const SCRATCH_BRIDGE = String.raw`(() => {
   const STYLE_PROPS = ["display","position","color","backgroundColor","fontSize","fontWeight","lineHeight","textAlign","margin","padding","border","borderRadius","flexDirection","alignItems","justifyContent","gap"];
@@ -244,7 +212,8 @@ const SCRATCH_BRIDGE = String.raw`(() => {
   parent.postMessage({ source: "nia-canvas", kind: "nia:ready", url: "scratch://index.html" }, "*");
 })();`;
 
-export function buildScratchPreview(document: ScratchDocument) {
+export function buildScratchPreview(document: ScratchDocument | null) {
+  if (!document) return "";
   const css = document.css.replace(/<\/style/gi, "<\\/style");
   const js = document.js.replace(/<\/script/gi, "<\\/script");
   const bridge = SCRATCH_BRIDGE.replace(/<\/script/gi, "<\\/script");
