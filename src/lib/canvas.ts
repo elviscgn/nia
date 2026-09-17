@@ -92,6 +92,22 @@ export const canvasSetStylePx = (
   valuePx: number,
 ) => invoke<CanvasStylePatchResult>("canvas_set_style_px", { file, selector, property, valuePx });
 
+export const canvasReplaceClassToken = (
+  file: string,
+  line: number,
+  column: number,
+  expectedClassValue: string,
+  oldToken: string,
+  newToken: string,
+) => invoke<CanvasStylePatchResult>("canvas_replace_class_token", {
+  file,
+  line,
+  column,
+  expectedClassValue,
+  oldToken,
+  newToken,
+});
+
 export type CanvasInbound =
   | { kind: "nia:ready"; url: string }
   | { kind: "nia:select"; selection: CanvasSelection };
