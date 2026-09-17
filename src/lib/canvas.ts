@@ -3,6 +3,14 @@ import { invoke } from "@tauri-apps/api/core";
 export type CanvasRect = { x: number; y: number; width: number; height: number };
 export type CanvasMode = "inspect" | "interact";
 
+export type CanvasStyleTarget = {
+  file: string;
+  selector: string;
+  property: string;
+  value: string;
+  important: boolean;
+};
+
 export type CanvasSourceRef = {
   file: string;
   line: number;
@@ -20,6 +28,7 @@ export type CanvasSelection = {
   path: string[];
   selector: string;
   styles: Record<string, string>;
+  styleTargets: Record<string, CanvasStyleTarget>;
   text: string;
   sourceUrl: string;
   source: CanvasSourceRef | null;
