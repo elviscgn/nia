@@ -1,11 +1,6 @@
 import { useEffect, useState, type KeyboardEvent } from "react";
 import { parseCanvasMessage, type CanvasSelection } from "./lib/canvas";
-import {
-  scratchAgentRun,
-  selectionForScratchAgent,
-  type ScratchAgentResponse,
-} from "./lib/agent";
-import { loadScratchDocument, saveScratchDocument } from "./lib/scratch";
+import { scratchAgentRun, type ScratchAgentResponse } from "./lib/agent";
 import "./scratch-agent.css";
 
 const VISION = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
@@ -15,10 +10,6 @@ type ChatEntry = {
   role: "user" | "assistant" | "error";
   text: string;
   meta?: string;
-};
-
-type ScratchAgentPanelProps = {
-  onApplied: () => void;
 };
 
 function loadChat(): ChatEntry[] {
@@ -34,7 +25,7 @@ function loadChat(): ChatEntry[] {
   }
 }
 
-export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps) {
+export default function ScratchAgentPanel() {
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState(false);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
@@ -63,18 +54,12 @@ export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps)
     setBusy(true);
     setMessages((current) => [...current, { role: "user", text: requestText }]);
 
-    const document = loadScratchDocument();
     try {
       const response: ScratchAgentResponse = await scratchAgentRun({
         prompt: requestText,
         vision: VISION,
-        selection: selectionForScratchAgent(selection),
-        html: document.html,
-        css: document.css,
-        js: document.js,
       });
 
-      saveScratchDocument({ html: response.html, css: response.css, js: response.js });
       setMessages((current) => [
         ...current,
         {
@@ -83,7 +68,13 @@ export default function ScratchAgentPanel({ onApplied }: ScratchAgentPanelProps)
           meta: `${response.model} · ${response.latencyMs} ms`,
         },
       ]);
-      onApplied();
+      window.dispatchEvent(new CustomEvent("nia:scratch-updated", {
+        detail: {
+          document: response.document,
+          undoDepth: response.undoDepth,
+          version: response.version,
+        },
+      }));
     } catch (error) {
       setMessages((current) => [
         ...current,
