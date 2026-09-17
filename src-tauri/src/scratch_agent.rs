@@ -1,6 +1,6 @@
+use crate::model_core::ModelState;
 use crate::scratch_core::{ScratchDocument, ScratchSelection, ScratchState};
 use serde::{Deserialize, Serialize};
-use std::env;
 use std::time::{Duration, Instant};
 
 const MAX_DOCUMENT_BYTES: usize = 1_000_000;
@@ -47,13 +47,6 @@ struct ModelEdit {
     summary: String,
 }
 
-fn provider_setting(primary: &str, fallback: &str) -> Option<String> {
-    env::var(primary)
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .or_else(|| env::var(fallback).ok().filter(|value| !value.trim().is_empty()))
-}
-
 fn trim_json_fence(value: &str) -> &str {
     let trimmed = value.trim();
     if let Some(rest) = trimmed.strip_prefix("```json") {
@@ -96,18 +89,15 @@ fn selection_context(selection: &Option<ScratchSelection>) -> serde_json::Value 
 #[tauri::command]
 pub async fn scratch_agent_run(
     request: ScratchAgentRequest,
-    state: tauri::State<'_, ScratchState>,
+    scratch_state: tauri::State<'_, ScratchState>,
+    model_state: tauri::State<'_, ModelState>,
 ) -> Result<ScratchAgentResponse, String> {
-    let document = state.document()?;
-    let selection = state.selection()?;
+    let document = scratch_state.document()?;
+    let selection = scratch_state.selection()?;
     validate_request(&request, &document)?;
 
-    let base_url = provider_setting("NIA_MODEL_BASE_URL", "OPENAI_BASE_URL")
-        .ok_or_else(|| "no model provider configured, set NIA_MODEL_BASE_URL and NIA_MODEL".to_string())?;
-    let model = provider_setting("NIA_MODEL", "OPENAI_MODEL")
-        .ok_or_else(|| "no model configured, set NIA_MODEL".to_string())?;
-    let api_key = provider_setting("NIA_MODEL_API_KEY", "OPENAI_API_KEY");
-    let endpoint = format!("{}/chat/completions", base_url.trim_end_matches('/'));
+    let provider = model_state.resolve()?;
+    let endpoint = format!("{}/chat/completions", provider.base_url);
 
     let system = r#"You are Nia's Scratch editing engine. Edit only the supplied raw HTML, CSS, and JavaScript document. Preserve working behavior unless the user asks to change it. Use the selected DOM context when provided. Follow the vision context as design intent. Return one JSON object only with exactly these string fields: html, css, js, summary. Do not wrap the JSON in markdown. Do not include explanations outside the JSON. Keep changes focused and make the resulting document runnable without a framework."#;
 
@@ -123,7 +113,7 @@ pub async fn scratch_agent_run(
     });
 
     let body = serde_json::json!({
-        "model": model,
+        "model": provider.model,
         "messages": [
             { "role": "system", "content": system },
             { "role": "user", "content": user_payload.to_string() }
@@ -135,7 +125,7 @@ pub async fn scratch_agent_run(
         .build()
         .map_err(|error| format!("failed to create model client: {error}"))?;
     let mut call = client.post(endpoint).json(&body);
-    if let Some(api_key) = api_key {
+    if let Some(api_key) = provider.api_key {
         call = call.bearer_auth(api_key);
     }
 
@@ -175,12 +165,12 @@ pub async fn scratch_agent_run(
         return Err("model returned a Scratch document that is too large".to_string());
     }
 
-    let snapshot = state.replace_document(next)?;
+    let snapshot = scratch_state.replace_document(next)?;
 
     Ok(ScratchAgentResponse {
         document: snapshot.document,
         summary: edit.summary,
-        model,
+        model: provider.model,
         latency_ms: started.elapsed().as_millis(),
         undo_depth: snapshot.undo_depth,
         version: snapshot.version,
