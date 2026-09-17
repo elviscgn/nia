@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import ScratchCodePanel from "./ScratchCodePanel";
 import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
 import {
   clearCanvasStylePreview,
@@ -17,6 +18,7 @@ import {
   scratchSetStylePx,
   scratchUndo,
   type ScratchDocument,
+  type ScratchSnapshot,
   type ScratchStylePatchResult,
 } from "./lib/scratch";
 
@@ -25,6 +27,8 @@ type AppProps = {
   modelLabel: string;
   onOpenModelSettings: () => void;
 };
+
+type WorkspaceView = "canvas" | "code" | "split";
 
 type ScratchUpdatedDetail = {
   document: ScratchDocument;
@@ -37,6 +41,7 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   const [latency, setLatency] = useState<number | null>(null);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
+  const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("canvas");
   const [scratchDocument, setScratchDocument] = useState<ScratchDocument | null>(null);
   const [scratchUndoDepth, setScratchUndoDepth] = useState(0);
   const [lastPatch, setLastPatch] = useState<ScratchStylePatchResult | null>(null);
@@ -46,6 +51,7 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   const autoInspected = useRef(false);
 
   const scratchSrcDoc = useMemo(() => buildScratchPreview(scratchDocument), [scratchDocument]);
+  const canvasVisible = workspaceView !== "code";
 
   useEffect(() => {
     coreHealth().then(setHealth).catch(() => {});
@@ -58,8 +64,9 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   }, []);
 
   useEffect(() => {
+    if (!canvasVisible) return;
     postCanvasMode(iframeRef.current, canvasMode, "*");
-  }, [canvasMode, scratchSrcDoc]);
+  }, [canvasMode, scratchSrcDoc, workspaceView, canvasVisible]);
 
   useEffect(() => {
     const onScratchUpdated = (event: Event) => {
@@ -98,6 +105,16 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [canvasMode]);
+
+  function applyScratchSnapshot(snapshot: ScratchSnapshot) {
+    setScratchDocument(snapshot.document);
+    setScratchUndoDepth(snapshot.undoDepth);
+    setSelection(null);
+    setLastPatch(null);
+    setLastPatchMs(null);
+    setEditError(null);
+    autoInspected.current = false;
+  }
 
   async function benchmark() {
     const samples: number[] = [];
@@ -158,13 +175,8 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
 
     try {
       const snapshot = await scratchUndo();
-      setScratchDocument(snapshot.document);
-      setScratchUndoDepth(snapshot.undoDepth);
-      setLastPatch(null);
-      setLastPatchMs(null);
-      setSelection(null);
-      autoInspected.current = false;
-      if (inspectSelector) {
+      applyScratchSnapshot(snapshot);
+      if (inspectSelector && canvasVisible) {
         window.setTimeout(() => requestCanvasInspect(iframeRef.current, inspectSelector, "*"), 180);
       }
     } catch (error) {
@@ -176,13 +188,7 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
     setEditError(null);
     clearCanvasStylePreview(iframeRef.current, "*");
     try {
-      const snapshot = await scratchReset();
-      setScratchDocument(snapshot.document);
-      setScratchUndoDepth(snapshot.undoDepth);
-      setSelection(null);
-      setLastPatch(null);
-      setLastPatchMs(null);
-      autoInspected.current = false;
+      applyScratchSnapshot(await scratchReset());
     } catch (error) {
       setEditError(error instanceof Error ? error.message : String(error));
     }
@@ -207,9 +213,9 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
           <span>local</span>
         </div>
         <nav>
-          <button className="active">Canvas</button>
-          <button>Code</button>
-          <button>Split</button>
+          <button className={workspaceView === "canvas" ? "active" : ""} onClick={() => setWorkspaceView("canvas")}>Canvas</button>
+          <button className={workspaceView === "code" ? "active" : ""} onClick={() => setWorkspaceView("code")}>Code</button>
+          <button className={workspaceView === "split" ? "active" : ""} onClick={() => setWorkspaceView("split")}>Split</button>
         </nav>
         <div className="actions">
           <span>{health ? "CEF + Rust" : "connecting..."}</span>
@@ -236,10 +242,10 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
         <section className="center">
           <div className="canvasToolbar">
             <span>
-              <button className={canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
-              <button className={canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
+              <button disabled={!canvasVisible} className={canvasVisible && canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
+              <button disabled={!canvasVisible} className={canvasVisible && canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
             </span>
-            <span>Desktop · 1440 × 900</span>
+            <span>{workspaceView === "code" ? "Raw Scratch source" : "Desktop · 1440 × 900"}</span>
             <span>
               <span className="scratchModeBadge"><i>⌁</i> Scratch</span>
               <button onClick={() => void newScratch()}>New</button>
@@ -247,29 +253,37 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
             </span>
           </div>
 
-          <div className="canvas">
-            <div className="browser">
-              <div className="browserBar">
-                <span>● ● ●</span>
-                <div>scratch://index.html</div>
-                <span className="pill">scratch: live</span>
-                <button onClick={() => {
-                  if (iframeRef.current) iframeRef.current.srcdoc = scratchSrcDoc;
-                }}>Reload</button>
+          <div className={`scratchSurface ${workspaceView}View`}>
+            {canvasVisible ? (
+              <div className="canvas">
+                <div className="browser">
+                  <div className="browserBar">
+                    <span>● ● ●</span>
+                    <div>scratch://index.html</div>
+                    <span className="pill">scratch: live</span>
+                    <button onClick={() => {
+                      if (iframeRef.current) iframeRef.current.srcdoc = scratchSrcDoc;
+                    }}>Reload</button>
+                  </div>
+                  <iframe
+                    ref={iframeRef}
+                    className="canvasFrame"
+                    title="Nia Scratch canvas"
+                    srcDoc={scratchSrcDoc}
+                    sandbox="allow-scripts allow-forms allow-modals"
+                  />
+                </div>
               </div>
-              <iframe
-                ref={iframeRef}
-                className="canvasFrame"
-                title="Nia Scratch canvas"
-                srcDoc={scratchSrcDoc}
-                sandbox="allow-scripts allow-forms allow-modals"
-              />
-            </div>
+            ) : null}
+
+            {workspaceView !== "canvas" ? (
+              <ScratchCodePanel document={scratchDocument} onSaved={applyScratchSnapshot} />
+            ) : null}
           </div>
 
           <div className="terminal">
             <div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div>
-            <pre>scratch › raw HTML/CSS/JS canvas{"\n"}nia › Rust Scratch core online · v{scratchUndoDepth + 1}</pre>
+            <pre>scratch › raw HTML/CSS/JS canvas{"\n"}nia › Rust Scratch core online · undo {scratchUndoDepth}</pre>
           </div>
         </section>
 
