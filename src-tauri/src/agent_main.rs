@@ -1,7 +1,14 @@
+mod model_core;
 mod scratch_agent;
 mod scratch_core;
 
 mod legacy {
+    use super::model_core::{
+        model_settings_get,
+        model_settings_save,
+        model_test_connection,
+        ModelState,
+    };
     use super::scratch_agent::scratch_agent_run;
     use super::scratch_core::{
         scratch_get,
@@ -27,6 +34,7 @@ mod legacy {
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
+            .manage(ModelState::load())
             .manage(ScratchState::load())
             .invoke_handler(tauri::generate_handler![
                 ping,
@@ -43,6 +51,9 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
+                model_settings_get,
+                model_settings_save,
+                model_test_connection,
                 scratch_get,
                 scratch_report_selection,
                 scratch_set_style_px,
