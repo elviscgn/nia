@@ -31,21 +31,39 @@ const PX_UTILITY_PREFIX: Record<string, string> = {
   "margin-bottom": "mb-",
 };
 
+function utilityParts(token: string) {
+  const variantIndex = token.lastIndexOf(":");
+  const variants = variantIndex >= 0 ? token.slice(0, variantIndex + 1) : "";
+  let utility = variantIndex >= 0 ? token.slice(variantIndex + 1) : token;
+  const important = utility.startsWith("!") ? "!" : "";
+  if (important) utility = utility.slice(1);
+  return { variants, important, utility };
+}
+
+function utilityMatchesProperty(token: string, property: string) {
+  const prefix = PX_UTILITY_PREFIX[property];
+  if (!prefix) return false;
+  return utilityParts(token).utility.startsWith(prefix);
+}
+
 function arbitraryPxToken(classValue: string, property: string) {
   const prefix = PX_UTILITY_PREFIX[property];
   if (!prefix) return null;
   return classValue
     .split(/\s+/)
-    .find((token) => token.startsWith(`${prefix}[`) && token.endsWith("px]")) ?? null;
+    .find((token) => {
+      const utility = utilityParts(token).utility;
+      return utility.startsWith(`${prefix}[`) && utility.endsWith("px]");
+    }) ?? null;
 }
 
 function nextArbitraryPxToken(token: string, property: string, next: number) {
   const prefix = PX_UTILITY_PREFIX[property];
-  if (!prefix || !token.startsWith(`${prefix}[`) || !token.endsWith("px]")) return null;
-  const current = Number.parseFloat(token.slice(prefix.length + 1, -3));
-  if (!Number.isFinite(current)) return null;
+  if (!prefix) return null;
+  const { variants, important, utility } = utilityParts(token);
+  if (!utility.startsWith(prefix)) return null;
   const value = Number.isInteger(next) ? String(next) : next.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-  return `${prefix}[${value}px]`;
+  return `${variants}${important}${prefix}[${value}px]`;
 }
 
 export default function App() {
@@ -157,7 +175,14 @@ export default function App() {
 
     const source = selection.source;
     const classValue = source?.classValue || selection.classes.join(" ");
-    const oldClassToken = arbitraryPxToken(classValue, property) || "";
+    const classTokens = classValue.split(/\s+/).filter(Boolean);
+    const directArbitraryToken = arbitraryPxToken(classValue, property);
+    const ownedUtilityToken = exactTarget?.classToken
+      && classTokens.includes(exactTarget.classToken)
+      && utilityMatchesProperty(exactTarget.classToken, property)
+        ? exactTarget.classToken
+        : null;
+    const oldClassToken = directArbitraryToken || ownedUtilityToken || "";
     const nextClassToken = oldClassToken ? nextArbitraryPxToken(oldClassToken, property, next) : null;
     const classFile = source?.classFile || source?.file;
     const classLine = source?.classLine || source?.line;
