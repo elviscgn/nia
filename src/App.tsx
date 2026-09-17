@@ -22,13 +22,22 @@ import {
   type StyleIndexState,
 } from "./lib/canvas";
 
-const PX_UTILITY_PREFIX: Record<string, string> = {
-  "font-size": "text-",
-  gap: "gap-",
-  "border-radius": "rounded-",
-  padding: "p-",
-  "margin-top": "mt-",
-  "margin-bottom": "mb-",
+const UTILITY_BASE: Record<string, string> = {
+  "font-size": "text",
+  gap: "gap",
+  "border-radius": "rounded",
+  padding: "p",
+  "margin-top": "mt",
+  "margin-bottom": "mb",
+};
+
+const UTILITY_PATTERN: Record<string, RegExp> = {
+  "font-size": /^text-(?:xs|sm|base|lg|xl|[2-9]xl|\[[^\]]+\])$/,
+  gap: /^gap-(?:0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
+  "border-radius": /^rounded(?:-(?:none|sm|md|lg|xl|2xl|3xl|full|\[[^\]]+\]))?$/,
+  padding: /^p-(?:0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
+  "margin-top": /^mt-(?:auto|0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
+  "margin-bottom": /^mb-(?:auto|0|px|\d+(?:\.\d+)?|\[[^\]]+\])$/,
 };
 
 function utilityParts(token: string) {
@@ -41,29 +50,23 @@ function utilityParts(token: string) {
 }
 
 function utilityMatchesProperty(token: string, property: string) {
-  const prefix = PX_UTILITY_PREFIX[property];
-  if (!prefix) return false;
-  return utilityParts(token).utility.startsWith(prefix);
+  const pattern = UTILITY_PATTERN[property];
+  return pattern ? pattern.test(utilityParts(token).utility) : false;
 }
 
-function arbitraryPxToken(classValue: string, property: string) {
-  const prefix = PX_UTILITY_PREFIX[property];
-  if (!prefix) return null;
+function utilityTokenForProperty(classValue: string, property: string) {
   return classValue
     .split(/\s+/)
-    .find((token) => {
-      const utility = utilityParts(token).utility;
-      return utility.startsWith(`${prefix}[`) && utility.endsWith("px]");
-    }) ?? null;
+    .filter(Boolean)
+    .find((token) => utilityMatchesProperty(token, property)) ?? null;
 }
 
-function nextArbitraryPxToken(token: string, property: string, next: number) {
-  const prefix = PX_UTILITY_PREFIX[property];
-  if (!prefix) return null;
-  const { variants, important, utility } = utilityParts(token);
-  if (!utility.startsWith(prefix)) return null;
+function nextUtilityPxToken(token: string, property: string, next: number) {
+  const base = UTILITY_BASE[property];
+  if (!base || !utilityMatchesProperty(token, property)) return null;
+  const { variants, important } = utilityParts(token);
   const value = Number.isInteger(next) ? String(next) : next.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
-  return `${variants}${important}${prefix}[${value}px]`;
+  return `${variants}${important}${base}-[${value}px]`;
 }
 
 export default function App() {
@@ -176,14 +179,14 @@ export default function App() {
     const source = selection.source;
     const classValue = source?.classValue || selection.classes.join(" ");
     const classTokens = classValue.split(/\s+/).filter(Boolean);
-    const directArbitraryToken = arbitraryPxToken(classValue, property);
+    const directUtilityToken = utilityTokenForProperty(classValue, property);
     const ownedUtilityToken = exactTarget?.classToken
       && classTokens.includes(exactTarget.classToken)
       && utilityMatchesProperty(exactTarget.classToken, property)
         ? exactTarget.classToken
         : null;
-    const oldClassToken = directArbitraryToken || ownedUtilityToken || "";
-    const nextClassToken = oldClassToken ? nextArbitraryPxToken(oldClassToken, property, next) : null;
+    const oldClassToken = directUtilityToken || ownedUtilityToken || "";
+    const nextClassToken = oldClassToken ? nextUtilityPxToken(oldClassToken, property, next) : null;
     const classFile = source?.classFile || source?.file;
     const classLine = source?.classLine || source?.line;
     const classColumn = source?.classColumn || source?.column;
