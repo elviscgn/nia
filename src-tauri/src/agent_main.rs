@@ -1,9 +1,14 @@
 mod scratch_agent;
 
 mod legacy {
-    use super::scratch_agent::scratch_agent_run;
-
     include!("main.rs");
+
+    #[tauri::command]
+    async fn scratch_agent_run(
+        request: super::scratch_agent::ScratchAgentRequest,
+    ) -> Result<super::scratch_agent::ScratchAgentResponse, String> {
+        super::scratch_agent::scratch_agent_run(request).await
+    }
 
     pub fn run_with_scratch_agent() {
         let style_index = StyleIndex::start();
