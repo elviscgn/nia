@@ -1,9 +1,13 @@
+.center {
+  position: relative;
+}
+
 .scratchWorkspace {
-  position: fixed;
+  position: absolute;
   inset: 0;
-  z-index: 1000;
+  z-index: 20;
   display: grid;
-  grid-template-rows: 48px minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
   background: #efeee9;
   color: #181816;
 }
@@ -13,7 +17,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 0 14px 0 16px;
+  padding: 0 12px;
   border-bottom: 1px solid #d7d5ce;
   background: #f8f7f3;
 }
@@ -26,35 +30,35 @@
 }
 
 .scratchTopbar strong {
-  font-size: 14px;
+  font-size: 13px;
   letter-spacing: -.01em;
 }
 
 .scratchTopbar span {
   color: #817c73;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .scratchActions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .scratchActions button,
 .scratchTabs button {
   border: 1px solid #d7d5ce;
-  border-radius: 7px;
+  border-radius: 6px;
   background: #fff;
   color: #302e29;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
 }
 
 .scratchActions button {
-  height: 30px;
-  padding: 0 11px;
+  height: 28px;
+  padding: 0 9px;
 }
 
 .scratchActions button:hover,
@@ -87,7 +91,7 @@
 .scratchBody {
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(360px, .92fr) minmax(480px, 1.38fr);
+  grid-template-columns: minmax(300px, .8fr) minmax(420px, 1.2fr);
   gap: 1px;
   background: #d7d5ce;
 }
@@ -101,21 +105,21 @@
 
 .scratchEditorPane {
   display: grid;
-  grid-template-rows: 42px minmax(0, 1fr) 28px;
+  grid-template-rows: 38px minmax(0, 1fr) 26px;
 }
 
 .scratchTabs {
   display: flex;
   align-items: end;
   gap: 2px;
-  padding: 7px 8px 0;
+  padding: 5px 7px 0;
   border-bottom: 1px solid #dedcd5;
   background: #f6f5f1;
 }
 
 .scratchTabs button {
-  height: 34px;
-  padding: 0 12px;
+  height: 32px;
+  padding: 0 10px;
   border-bottom-left-radius: 0;
   border-bottom-right-radius: 0;
   color: #716d65;
@@ -137,10 +141,10 @@
   resize: none;
   border: 0;
   outline: 0;
-  padding: 18px 20px 28px;
+  padding: 16px 18px 26px;
   background: #fff;
   color: #282621;
-  font: 13px/1.65 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font: 12px/1.6 ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   tab-size: 2;
 }
 
@@ -152,33 +156,33 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 10px;
+  padding: 0 9px;
   border-top: 1px solid #ebe9e3;
   background: #faf9f6;
   color: #918c83;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .scratchPreviewPane {
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: 34px minmax(0, 1fr);
 }
 
 .scratchPreviewBar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 12px;
+  padding: 0 10px;
   border-bottom: 1px solid #dedcd5;
   background: #f8f7f3;
   color: #77736b;
-  font-size: 11px;
+  font-size: 10px;
 }
 
 .scratchPreviewBar span:first-child {
   color: #2a2823;
   font-weight: 700;
-  font-size: 12px;
+  font-size: 11px;
 }
 
 .scratchPreview {
@@ -188,10 +192,9 @@
   background: #fff;
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1100px) {
   .scratchBody {
-    grid-template-columns: 1fr;
-    grid-template-rows: minmax(320px, .9fr) minmax(360px, 1.1fr);
+    grid-template-columns: minmax(280px, .9fr) minmax(360px, 1.1fr);
   }
 
   .scratchTopbar > div:first-child span {
