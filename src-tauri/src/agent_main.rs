@@ -86,7 +86,7 @@ mod legacy {
 
     #[tauri::command]
     async fn project_pick_folder(
-        app: tauri::AppHandle<tauri_runtime_cef::Cef>,
+        app: tauri::AppHandle,
         state: tauri::State<'_, ProjectState>,
         style_index: tauri::State<'_, StyleIndex>,
         canvas_state: tauri::State<'_, CanvasState>,
