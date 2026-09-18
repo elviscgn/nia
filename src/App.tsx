@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ScratchCodePanel from "./ScratchCodePanel";
-import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";\nimport { projectGet, projectPickFolder, type ProjectSession } from "./lib/project";
+import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
+import { projectGet, projectPickFolder, type ProjectSession } from "./lib/project";
 import {
   clearCanvasStylePreview,
   parseCanvasMessage,
