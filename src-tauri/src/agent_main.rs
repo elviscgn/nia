@@ -1,5 +1,6 @@
 mod model_core;
 mod project_core;
+mod project_process;
 mod scratch_agent;
 mod scratch_code;
 mod scratch_core;
@@ -16,6 +17,7 @@ mod legacy {
         ModelState,
     };
     use super::project_core::{ProjectSessionSnapshot, ProjectState};
+    use super::project_process::{ProjectProcessSnapshot, ProjectProcessState};
     use super::scratch_agent::{
         scratch_agent_clear_history as core_scratch_agent_clear_history,
         scratch_agent_history as core_scratch_agent_history,
@@ -74,13 +76,15 @@ mod legacy {
     }
 
     #[tauri::command]
-    fn project_open(
+    async fn project_open(
         root: String,
         state: tauri::State<'_, ProjectState>,
+        process_state: tauri::State<'_, ProjectProcessState>,
         style_index: tauri::State<'_, StyleIndex>,
         canvas_state: tauri::State<'_, CanvasState>,
         history: tauri::State<'_, EditHistory>,
     ) -> Result<ProjectSessionSnapshot, String> {
+        process_state.stop().await?;
         activate_project(root, &state, &style_index, &canvas_state, &history)
     }
 
@@ -88,6 +92,7 @@ mod legacy {
     async fn project_pick_folder(
         app: tauri::AppHandle,
         state: tauri::State<'_, ProjectState>,
+        process_state: tauri::State<'_, ProjectProcessState>,
         style_index: tauri::State<'_, StyleIndex>,
         canvas_state: tauri::State<'_, CanvasState>,
         history: tauri::State<'_, EditHistory>,
@@ -109,6 +114,7 @@ mod legacy {
         let path = selected
             .into_path()
             .map_err(|error| format!("failed to resolve selected project folder: {error}"))?;
+        process_state.stop().await?;
         activate_project(
             path.to_string_lossy().to_string(),
             &state,
@@ -117,6 +123,28 @@ mod legacy {
             &history,
         )
         .map(Some)
+    }
+
+    #[tauri::command]
+    async fn project_process_status(
+        state: tauri::State<'_, ProjectProcessState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.snapshot().await
+    }
+
+    #[tauri::command]
+    async fn project_process_start(
+        state: tauri::State<'_, ProjectProcessState>,
+        project_state: tauri::State<'_, ProjectState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.start(&project_state).await
+    }
+
+    #[tauri::command]
+    async fn project_process_stop(
+        state: tauri::State<'_, ProjectProcessState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.stop().await
     }
 
     #[tauri::command]
@@ -248,6 +276,7 @@ mod legacy {
             })
             .manage(style_index)
             .manage(project_state)
+            .manage(ProjectProcessState::new())
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
@@ -273,6 +302,9 @@ mod legacy {
                 project_get,
                 project_open,
                 project_pick_folder,
+                project_process_status,
+                project_process_start,
+                project_process_stop,
                 model_settings_get,
                 model_settings_save,
                 model_test_connection,

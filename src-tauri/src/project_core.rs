@@ -109,7 +109,7 @@ fn package_manager_from_field(package: &Value) -> Option<String> {
         .and_then(Value::as_str)
         .and_then(|value| value.split('@').next())
         .map(str::trim)
-        .filter(|value| !value.is_empty())
+        .filter(|value| matches!(*value, "npm" | "pnpm" | "yarn" | "bun"))
         .map(str::to_string)
 }
 

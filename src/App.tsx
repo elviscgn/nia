@@ -1,7 +1,15 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ScratchCodePanel from "./ScratchCodePanel";
 import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
-import { projectGet, projectPickFolder, type ProjectSession } from "./lib/project";
+import {
+  projectGet,
+  projectPickFolder,
+  projectProcessStart,
+  projectProcessStatus,
+  projectProcessStop,
+  type ProjectProcess,
+  type ProjectSession,
+} from "./lib/project";
 import {
   clearCanvasStylePreview,
   parseCanvasMessage,
@@ -42,6 +50,8 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   const [latency, setLatency] = useState<number | null>(null);
   const [project, setProject] = useState<ProjectSession | null>(null);
   const [projectOpening, setProjectOpening] = useState(false);
+  const [projectProcess, setProjectProcess] = useState<ProjectProcess | null>(null);
+  const [projectProcessBusy, setProjectProcessBusy] = useState(false);
   const [projectError, setProjectError] = useState<string | null>(null);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
@@ -56,12 +66,14 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
 
   const scratchSrcDoc = useMemo(() => buildScratchPreview(scratchDocument), [scratchDocument]);
   const canvasVisible = workspaceView !== "code";
+  const liveProjectUrl = projectProcess?.running ? projectProcess.url : null;
 
   useEffect(() => {
     coreHealth().then(setHealth).catch(() => {});
     projectGet().then(setProject).catch((error) => {
       setProjectError(error instanceof Error ? error.message : String(error));
     });
+    projectProcessStatus().then(setProjectProcess).catch(() => {});
     scratchGet()
       .then((snapshot) => {
         setScratchDocument(snapshot.document);
@@ -71,9 +83,19 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   }, []);
 
   useEffect(() => {
-    if (!canvasVisible) return;
+    if (!canvasVisible || projectProcess?.url) return;
     postCanvasMode(iframeRef.current, canvasMode, "*");
-  }, [canvasMode, scratchSrcDoc, workspaceView, canvasVisible]);
+  }, [canvasMode, scratchSrcDoc, workspaceView, canvasVisible, projectProcess?.url]);
+
+  useEffect(() => {
+    if (!projectProcess?.running) return;
+    const poll = window.setInterval(() => {
+      void projectProcessStatus()
+        .then(setProjectProcess)
+        .catch((error) => setProjectError(error instanceof Error ? error.message : String(error)));
+    }, 500);
+    return () => window.clearInterval(poll);
+  }, [projectProcess?.running]);
 
   useEffect(() => {
     const onScratchUpdated = (event: Event) => {
@@ -121,6 +143,7 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
       const next = await projectPickFolder();
       if (next) {
         setProject(next);
+        setProjectProcess(await projectProcessStatus());
         setSelection(null);
         setLastPatch(null);
         setLastPatchMs(null);
@@ -130,6 +153,23 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
       setProjectError(error instanceof Error ? error.message : String(error));
     } finally {
       setProjectOpening(false);
+    }
+  }
+
+  async function toggleProjectProcess() {
+    if (projectProcessBusy || !project?.devScript) return;
+    setProjectProcessBusy(true);
+    setProjectError(null);
+    try {
+      const next = projectProcess?.running
+        ? await projectProcessStop()
+        : await projectProcessStart();
+      setProjectProcess(next);
+      if (next.running) setWorkspaceView("canvas");
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProjectProcessBusy(false);
     }
   }
 
@@ -253,7 +293,13 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
         <div className="actions">
           <span>{health ? "CEF + Rust" : "connecting..."}</span>
           <button onClick={onOpenModelSettings}>{modelLabel}</button>
-          <button className="run">Run</button>
+          <button
+            className="run"
+            disabled={!project?.devScript || projectProcessBusy}
+            onClick={() => void toggleProjectProcess()}
+          >
+            {projectProcessBusy ? "Working..." : projectProcess?.running ? "Stop" : "Run"}
+          </button>
         </div>
       </header>
 
@@ -275,12 +321,12 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
         <section className="center">
           <div className="canvasToolbar">
             <span>
-              <button disabled={!canvasVisible} className={canvasVisible && canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
-              <button disabled={!canvasVisible} className={canvasVisible && canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
+              <button disabled={!canvasVisible || Boolean(liveProjectUrl)} className={canvasVisible && !liveProjectUrl && canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
+              <button disabled={!canvasVisible || Boolean(liveProjectUrl)} className={canvasVisible && !liveProjectUrl && canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
             </span>
-            <span>{workspaceView === "code" ? "Raw Scratch source" : "Desktop · 1440 × 900"}</span>
+            <span>{workspaceView === "code" ? "Raw Scratch source" : liveProjectUrl ? "Project canvas · live dev server" : "Desktop · 1440 × 900"}</span>
             <span>
-              <span className="scratchModeBadge"><i>⌁</i> Scratch</span>
+              <span className="scratchModeBadge"><i>⌁</i> {liveProjectUrl ? "Project" : "Scratch"}</span>
               <button onClick={() => void newScratch()}>New</button>
               &nbsp; Fit &nbsp; 100%
             </span>
@@ -292,19 +338,30 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
                 <div className="browser">
                   <div className="browserBar">
                     <span>● ● ●</span>
-                    <div>scratch://index.html</div>
-                    <span className="pill">scratch: live</span>
+                    <div>{liveProjectUrl ?? "scratch://index.html"}</div>
+                    <span className="pill">{liveProjectUrl ? "project: live" : "scratch: live"}</span>
                     <button onClick={() => {
-                      if (iframeRef.current) iframeRef.current.srcdoc = scratchSrcDoc;
+                      if (!iframeRef.current) return;
+                      if (liveProjectUrl) iframeRef.current.src = liveProjectUrl;
+                      else iframeRef.current.srcdoc = scratchSrcDoc;
                     }}>Reload</button>
                   </div>
-                  <iframe
-                    ref={iframeRef}
-                    className="canvasFrame"
-                    title="Nia Scratch canvas"
-                    srcDoc={scratchSrcDoc}
-                    sandbox="allow-scripts allow-forms allow-modals"
-                  />
+                  {liveProjectUrl ? (
+                    <iframe
+                      ref={iframeRef}
+                      className="canvasFrame"
+                      title="Nia project canvas"
+                      src={liveProjectUrl}
+                    />
+                  ) : (
+                    <iframe
+                      ref={iframeRef}
+                      className="canvasFrame"
+                      title="Nia Scratch canvas"
+                      srcDoc={scratchSrcDoc}
+                      sandbox="allow-scripts allow-forms allow-modals"
+                    />
+                  )}
                 </div>
               </div>
             ) : null}
@@ -318,8 +375,10 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
             <div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div>
             <pre>
               {project ? `project › ${project.root}\n` : ""}
-              {project?.devCommand ? `run › ${project.devCommand}\n` : ""}
-              scratch › raw HTML/CSS/JS canvas{"\n"}nia › Rust core online · undo {scratchUndoDepth}
+              {projectProcess?.command ? `process › ${projectProcess.command}\n` : project?.devCommand ? `run › ${project.devCommand}\n` : ""}
+              {projectProcess?.logs?.length ? `${projectProcess.logs.slice(-8).join("\n")}\n` : ""}
+              {liveProjectUrl ? `canvas › ${liveProjectUrl}\n` : "scratch › raw HTML/CSS/JS canvas\n"}
+              nia › Rust core online · undo {scratchUndoDepth}
               {projectError ? `\nproject error › ${projectError}` : ""}
             </pre>
           </div>

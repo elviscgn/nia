@@ -19,4 +19,4 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 tauri = { version = "=3.0.0-alpha.1", features = [] }
 tauri-runtime-cef = { version = "=3.0.0-alpha.1", features = ["devtools"] }
 tauri-plugin-dialog = { version = "=3.0.0-alpha.0" }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "fs", "io-util"] }

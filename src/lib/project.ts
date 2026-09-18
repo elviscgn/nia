@@ -22,3 +22,23 @@ export function projectOpen(root: string) {
 export function projectPickFolder() {
   return invoke<ProjectSession | null>("project_pick_folder");
 }
+
+export type ProjectProcess = {
+  running: boolean;
+  pid: number | null;
+  url: string | null;
+  command: string | null;
+  logs: string[];
+};
+
+export function projectProcessStatus() {
+  return invoke<ProjectProcess>("project_process_status");
+}
+
+export function projectProcessStart() {
+  return invoke<ProjectProcess>("project_process_start");
+}
+
+export function projectProcessStop() {
+  return invoke<ProjectProcess>("project_process_stop");
+}
