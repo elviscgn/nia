@@ -48,7 +48,23 @@ mod legacy {
         VisionState,
     };
 
+    use tauri_plugin_dialog::DialogExt;
+
     include!("main.rs");
+
+    fn activate_project(
+        root: String,
+        state: &ProjectState,
+        style_index: &StyleIndex,
+        canvas_state: &CanvasState,
+        history: &EditHistory,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        let snapshot = state.open(root)?;
+        style_index.request_refresh();
+        *canvas_state.selection.lock().map_err(|error| error.to_string())? = None;
+        history.undo.lock().map_err(|error| error.to_string())?.clear();
+        Ok(snapshot)
+    }
 
     #[tauri::command]
     fn project_get(
@@ -65,11 +81,42 @@ mod legacy {
         canvas_state: tauri::State<'_, CanvasState>,
         history: tauri::State<'_, EditHistory>,
     ) -> Result<ProjectSessionSnapshot, String> {
-        let snapshot = state.open(root)?;
-        style_index.request_refresh();
-        *canvas_state.selection.lock().map_err(|error| error.to_string())? = None;
-        history.undo.lock().map_err(|error| error.to_string())?.clear();
-        Ok(snapshot)
+        activate_project(root, &state, &style_index, &canvas_state, &history)
+    }
+
+    #[tauri::command]
+    async fn project_pick_folder(
+        app: tauri::AppHandle<tauri_runtime_cef::Cef>,
+        state: tauri::State<'_, ProjectState>,
+        style_index: tauri::State<'_, StyleIndex>,
+        canvas_state: tauri::State<'_, CanvasState>,
+        history: tauri::State<'_, EditHistory>,
+    ) -> Result<Option<ProjectSessionSnapshot>, String> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        app.dialog()
+            .file()
+            .set_title("Open project")
+            .pick_folder(move |folder| {
+                let _ = sender.send(folder);
+            });
+
+        let selected = receiver
+            .await
+            .map_err(|_| "project folder picker closed unexpectedly".to_string())?;
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        let path = selected
+            .into_path()
+            .map_err(|error| format!("failed to resolve selected project folder: {error}"))?;
+        activate_project(
+            path.to_string_lossy().to_string(),
+            &state,
+            &style_index,
+            &canvas_state,
+            &history,
+        )
+        .map(Some)
     }
 
     #[tauri::command]
@@ -194,6 +241,7 @@ mod legacy {
 
         tauri::Builder::default()
             .runtime(tauri_runtime_cef::Cef::default())
+            .plugin(tauri_plugin_dialog::init())
             .manage(CoreStarted(Instant::now()))
             .manage(CanvasState {
                 selection: Mutex::new(None),
@@ -224,6 +272,7 @@ mod legacy {
                 canvas_cdp_evaluate,
                 project_get,
                 project_open,
+                project_pick_folder,
                 model_settings_get,
                 model_settings_save,
                 model_test_connection,

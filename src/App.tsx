@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import ScratchCodePanel from "./ScratchCodePanel";
-import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";
+import { coreHealth, coreRoundTrip, type CoreHealth } from "./lib/core";\nimport { projectGet, projectPickFolder, type ProjectSession } from "./lib/project";
 import {
   clearCanvasStylePreview,
   parseCanvasMessage,
@@ -39,6 +39,9 @@ type ScratchUpdatedDetail = {
 export default function App({ agentPanel, modelLabel, onOpenModelSettings }: AppProps) {
   const [health, setHealth] = useState<CoreHealth | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
+  const [project, setProject] = useState<ProjectSession | null>(null);
+  const [projectOpening, setProjectOpening] = useState(false);
+  const [projectError, setProjectError] = useState<string | null>(null);
   const [selection, setSelection] = useState<CanvasSelection | null>(null);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("inspect");
   const [workspaceView, setWorkspaceView] = useState<WorkspaceView>("canvas");
@@ -55,6 +58,9 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
 
   useEffect(() => {
     coreHealth().then(setHealth).catch(() => {});
+    projectGet().then(setProject).catch((error) => {
+      setProjectError(error instanceof Error ? error.message : String(error));
+    });
     scratchGet()
       .then((snapshot) => {
         setScratchDocument(snapshot.document);
@@ -105,6 +111,26 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
   }, [canvasMode]);
+
+  async function openProject() {
+    if (projectOpening) return;
+    setProjectOpening(true);
+    setProjectError(null);
+    try {
+      const next = await projectPickFolder();
+      if (next) {
+        setProject(next);
+        setSelection(null);
+        setLastPatch(null);
+        setLastPatchMs(null);
+        setEditError(null);
+      }
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setProjectOpening(false);
+    }
+  }
 
   function applyScratchSnapshot(snapshot: ScratchSnapshot) {
     setScratchDocument(snapshot.document);
@@ -209,8 +235,14 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
         <div className="brand">
           <div className="mark"><i/><i/></div>
           <strong>Nia</strong>
-          <button>scratch⌄</button>
-          <span>local</span>
+          <button
+            className="projectButton"
+            onClick={() => void openProject()}
+            title={project?.root ?? "Open a project"}
+          >
+            {projectOpening ? "Opening..." : project?.name ?? "Open project"}
+          </button>
+          <span className="projectMeta">{project?.framework ?? "local"}{project?.packageManager ? ` · ${project.packageManager}` : ""}</span>
         </div>
         <nav>
           <button className={workspaceView === "canvas" ? "active" : ""} onClick={() => setWorkspaceView("canvas")}>Canvas</button>
@@ -283,7 +315,12 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
 
           <div className="terminal">
             <div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div>
-            <pre>scratch › raw HTML/CSS/JS canvas{"\n"}nia › Rust Scratch core online · undo {scratchUndoDepth}</pre>
+            <pre>
+              {project ? `project › ${project.root}\n` : ""}
+              {project?.devCommand ? `run › ${project.devCommand}\n` : ""}
+              scratch › raw HTML/CSS/JS canvas{"\n"}nia › Rust core online · undo {scratchUndoDepth}
+              {projectError ? `\nproject error › ${projectError}` : ""}
+            </pre>
           </div>
         </section>
 
