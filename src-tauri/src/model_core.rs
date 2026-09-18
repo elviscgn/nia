@@ -199,12 +199,10 @@ impl ModelState {
     }
 }
 
-#[tauri::command]
 pub fn model_settings_get(state: tauri::State<'_, ModelState>) -> Result<ModelSettingsSnapshot, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn model_settings_save(
     input: ModelSettingsInput,
     state: tauri::State<'_, ModelState>,
@@ -212,7 +210,6 @@ pub fn model_settings_save(
     state.save(input)
 }
 
-#[tauri::command]
 pub async fn model_test_connection(
     state: tauri::State<'_, ModelState>,
 ) -> Result<ModelConnectionResult, String> {

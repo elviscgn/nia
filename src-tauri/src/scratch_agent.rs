@@ -1,5 +1,6 @@
 use crate::model_core::ModelState;
 use crate::scratch_core::{ScratchDocument, ScratchSelection, ScratchState};
+use crate::vision_core::VisionState;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
@@ -9,7 +10,6 @@ use std::time::{Duration, Instant};
 const MAX_DOCUMENT_BYTES: usize = 1_000_000;
 const MAX_PROMPT_BYTES: usize = 24_000;
 const MAX_HISTORY_ENTRIES: usize = 80;
-const DEFAULT_VISION: &str = "Warm editorial interface. Restrained amber. Dense typography. Minimal decoration.";
 const STARTER_MESSAGE: &str = "Describe what you want to build or change in Scratch.";
 
 #[derive(Debug, Clone, Deserialize)]
@@ -208,9 +208,11 @@ async fn execute_edit(
     request: &ScratchAgentRequest,
     scratch_state: &ScratchState,
     model_state: &ModelState,
+    vision_state: &VisionState,
 ) -> Result<CompletedEdit, String> {
     let document = scratch_state.document()?;
     let selection = scratch_state.selection()?;
+    let vision = vision_state.snapshot()?;
     validate_request(request, &document)?;
 
     let provider = model_state.resolve()?;
@@ -221,7 +223,12 @@ async fn execute_edit(
 
     let user_payload = serde_json::json!({
         "request": request.prompt,
-        "vision": DEFAULT_VISION,
+        "vision": {
+            "description": vision.description,
+            "references": vision.references,
+            "scope": vision.scope,
+            "version": vision.version,
+        },
         "selection": selection_context(&selection),
         "document": {
             "html": document.html,
@@ -295,25 +302,23 @@ async fn execute_edit(
     })
 }
 
-#[tauri::command]
 pub fn scratch_agent_history(
     state: tauri::State<'_, ScratchAgentState>,
 ) -> Result<Vec<ScratchChatEntry>, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn scratch_agent_clear_history(
     state: tauri::State<'_, ScratchAgentState>,
 ) -> Result<Vec<ScratchChatEntry>, String> {
     state.clear()
 }
 
-#[tauri::command]
 pub async fn scratch_agent_run(
     request: ScratchAgentRequest,
     scratch_state: tauri::State<'_, ScratchState>,
     model_state: tauri::State<'_, ModelState>,
+    vision_state: tauri::State<'_, VisionState>,
     agent_state: tauri::State<'_, ScratchAgentState>,
 ) -> Result<ScratchAgentResponse, String> {
     let document = scratch_state.document()?;
@@ -322,7 +327,7 @@ pub async fn scratch_agent_run(
     let prompt = request.prompt.trim().to_string();
     agent_state.push("user", prompt, None)?;
 
-    match execute_edit(&request, &scratch_state, &model_state).await {
+    match execute_edit(&request, &scratch_state, &model_state, &vision_state).await {
         Ok(edit) => {
             let summary = if edit.summary.trim().is_empty() {
                 "Updated Scratch.".to_string()

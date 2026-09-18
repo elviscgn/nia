@@ -1,5 +1,6 @@
 .agent > .chat,
-.agent > .composer {
+.agent > .composer,
+.agent > .vision {
   display: none;
 }
 
@@ -8,6 +9,82 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.scratchVisionCard {
+  margin: 12px 12px 8px;
+  padding: 11px 12px;
+  border: 1px solid #e5d19a;
+  border-radius: 10px;
+  background: #fff8e8;
+}
+
+.scratchVisionHeader,
+.scratchVisionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scratchVisionHeader b {
+  color: #8d5f00;
+  font-size: 9px;
+  letter-spacing: .13em;
+}
+
+.scratchVisionHeader button,
+.scratchVisionFooter button {
+  border: 1px solid #dfc77e;
+  border-radius: 6px;
+  background: #fffdf7;
+  padding: 4px 7px;
+  color: #725000;
+  font-size: 9px;
+}
+
+.scratchVisionCard p {
+  margin: 8px 0 10px;
+  color: #39362f;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.scratchVisionCard > small,
+.scratchVisionFooter small {
+  color: #77736b;
+  font-size: 9px;
+}
+
+.scratchVisionCard textarea {
+  width: 100%;
+  min-height: 84px;
+  margin: 8px 0;
+  padding: 8px 9px;
+  resize: vertical;
+  border: 1px solid #dec98b;
+  border-radius: 7px;
+  outline: 0;
+  background: #fffdf8;
+  color: #302e29;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.scratchVisionCard textarea.scratchVisionReferences {
+  min-height: 58px;
+  margin-top: 0;
+  font: 10px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.scratchVisionCard textarea:focus {
+  border-color: #c88900;
+  box-shadow: 0 0 0 2px rgba(200, 137, 0, .10);
+}
+
+.scratchVisionFooter button:disabled {
+  cursor: default;
+  opacity: .45;
 }
 
 .scratchAgentChat {
@@ -120,4 +197,23 @@
 .scratchAgentSendRow button:disabled {
   opacity: .35;
   cursor: default;
+}
+
+.scratchModeBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  padding: 3px 7px;
+  border: 1px solid #ead18e;
+  border-radius: 999px;
+  background: #fff4d4;
+  color: #8a5d00;
+  font-size: 9px;
+  font-weight: 650;
+}
+
+.scratchModeBadge i {
+  font-style: normal;
+  font-size: 10px;
 }

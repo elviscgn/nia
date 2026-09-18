@@ -87,13 +87,13 @@ h1 { margin: 12px 0; font-size: 72px; line-height: .94; letter-spacing: -.05em; 
 button { margin-top: 20px; border: 0; border-radius: 10px; padding: 12px 18px; font: inherit; font-weight: 700; background: #d79a08; color: #1d1708; cursor: pointer; }
 .status { margin-top: 18px; color: #7d776d; }"#
             .to_string(),
-        js: r#"const button = document.querySelector("#action");
+        js: r##"const button = document.querySelector("#action");
 const status = document.querySelector("#status");
 let clicks = 0;
 button?.addEventListener("click", () => {
   clicks += 1;
   if (status) status.textContent = `Clicked ${clicks} time${clicks === 1 ? "" : "s"}.`;
-});"#
+});"##
             .to_string(),
     }
 }
@@ -239,12 +239,10 @@ impl ScratchState {
     }
 }
 
-#[tauri::command]
 pub fn scratch_get(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     state.snapshot()
 }
 
-#[tauri::command]
 pub fn scratch_report_selection(
     selection: ScratchSelection,
     state: tauri::State<'_, ScratchState>,
@@ -253,7 +251,6 @@ pub fn scratch_report_selection(
     Ok(())
 }
 
-#[tauri::command]
 pub fn scratch_set_style_px(
     selector: String,
     property: String,
@@ -300,7 +297,6 @@ pub fn scratch_set_style_px(
     })
 }
 
-#[tauri::command]
 pub fn scratch_undo(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     let mut inner = state.inner.lock().map_err(|error| error.to_string())?;
     let previous = inner.undo.pop().ok_or_else(|| "nothing to undo".to_string())?;
@@ -316,7 +312,6 @@ pub fn scratch_undo(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnap
     })
 }
 
-#[tauri::command]
 pub fn scratch_reset(state: tauri::State<'_, ScratchState>) -> Result<ScratchSnapshot, String> {
     state.replace_document(starter_document())
 }

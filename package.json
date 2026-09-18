@@ -10,6 +10,9 @@
     "dev:nia": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "dev:sample": "vite --config sample.vite.config.ts --host 127.0.0.1 --port 1421 --strictPort",
     "build": "tsc && vite build",
+    "check:frontend": "pnpm build",
+    "check:rust": "cargo check --manifest-path src-tauri/Cargo.toml --locked && cargo test --manifest-path src-tauri/Cargo.toml --locked",
+    "check": "pnpm check:frontend && pnpm check:rust",
     "setup:mac": "zsh scripts/setup-macos.sh",
     "tauri": "tauri"
   },
