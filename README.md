@@ -1,4 +1,10 @@
-<p align="center">\n  <img src="docs/assets/nia-readme-banner.svg" alt="Nia, the running UI is the canvas" width="100%" />\n</p>\n\n# Nia\n\nNia is a visual frontend engineering workspace for humans and coding agents.
+<p align="center">
+  <img src="docs/assets/nia-readme-banner.svg" alt="Nia, the running UI is the canvas" width="100%" />
+</p>
+
+# Nia
+
+Nia is a visual frontend engineering workspace for humans and coding agents.
 
 The goal is simple: make frontend iteration feel immediate.
 
