@@ -73,6 +73,20 @@ button { cursor: pointer; }
 
 .brand strong { font-size: 14px; letter-spacing: -.02em; }
 .brand span, .actions span { font-size: 11px; color: var(--muted); }
+.brand .projectButton {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-color: #dedbd3;
+  background: #f7f6f2;
+}
+.brand .projectMeta {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .topbar button {
   border: 1px solid transparent;

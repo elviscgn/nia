@@ -120,6 +120,7 @@ struct StyleIndexSnapshot {
     rules: Vec<StyleRuleRef>,
     files: BTreeMap<String, StyleFileStamp>,
     version: u64,
+    project_version: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -147,17 +148,18 @@ struct EditHistory {
 }
 
 impl StyleIndex {
-    fn start() -> Self {
-        let snapshot = Arc::new(RwLock::new(build_style_index_snapshot(1)));
+    fn start(project_state: ProjectState) -> Self {
+        let snapshot = Arc::new(RwLock::new(build_style_index_snapshot(&project_state, 1)));
         let (refresh_tx, refresh_rx) = sync_channel::<()>(1);
         let worker_snapshot = Arc::clone(&snapshot);
+        let worker_project = project_state.clone();
 
         let _ = std::thread::Builder::new()
             .name("nia-style-index".to_string())
             .spawn(move || loop {
                 match refresh_rx.recv_timeout(Duration::from_millis(STYLE_INDEX_POLL_MS)) {
                     Ok(()) | Err(RecvTimeoutError::Timeout) => {
-                        let _ = refresh_style_index_if_changed(&worker_snapshot);
+                        let _ = refresh_style_index_if_changed(&worker_snapshot, &worker_project);
                     }
                     Err(RecvTimeoutError::Disconnected) => break,
                 }
@@ -226,14 +228,7 @@ async fn canvas_status() -> CanvasStatus {
     }
 }
 
-fn project_root() -> Result<PathBuf, String> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "could not resolve project root".to_string())
-}
-
-fn safe_project_file(relative: &str) -> Result<PathBuf, String> {
+fn safe_project_file(relative: &str, project_state: &ProjectState) -> Result<PathBuf, String> {
     let relative_path = Path::new(relative);
     if relative_path.is_absolute()
         || relative_path.components().any(|component| {
@@ -246,13 +241,20 @@ fn safe_project_file(relative: &str) -> Result<PathBuf, String> {
         return Err("unsafe project path".to_string());
     }
 
-    Ok(project_root()?.join(relative_path))
+    let root = project_state.root()?.canonicalize()
+        .map_err(|error| format!("failed to resolve project root: {error}"))?;
+    let candidate = root.join(relative_path);
+    let resolved = candidate.canonicalize()
+        .map_err(|error| format!("failed to resolve {}: {error}", candidate.display()))?;
+    if !resolved.starts_with(&root) {
+        return Err("project path escaped the active project root".to_string());
+    }
+    Ok(resolved)
 }
 
-fn relative_project_path(path: &Path) -> Result<String, String> {
-    let root = project_root()?;
+fn relative_project_path(path: &Path, root: &Path) -> Result<String, String> {
     let relative = path
-        .strip_prefix(&root)
+        .strip_prefix(root)
         .map_err(|_| format!("{} is outside the project root", path.display()))?;
     Ok(relative.to_string_lossy().replace('\\', "/"))
 }
@@ -284,13 +286,9 @@ fn collect_css_files(dir: &Path, output: &mut Vec<PathBuf>) {
     }
 }
 
-fn css_files() -> Vec<PathBuf> {
-    let Ok(root) = project_root() else {
-        return Vec::new();
-    };
-
+fn css_files(root: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
-    collect_css_files(&root, &mut files);
+    collect_css_files(root, &mut files);
     files.sort();
     files
 }
@@ -310,19 +308,19 @@ fn style_file_stamp(path: &Path) -> Option<StyleFileStamp> {
     })
 }
 
-fn style_fingerprint(paths: &[PathBuf]) -> BTreeMap<String, StyleFileStamp> {
+fn style_fingerprint(paths: &[PathBuf], root: &Path) -> BTreeMap<String, StyleFileStamp> {
     paths
         .iter()
         .filter_map(|path| {
-            let file = relative_project_path(path).ok()?;
+            let file = relative_project_path(path, root).ok()?;
             let stamp = style_file_stamp(path)?;
             Some((file, stamp))
         })
         .collect()
 }
 
-fn index_css_file(path: &Path, css: &str) -> Vec<StyleRuleRef> {
-    let Ok(file) = relative_project_path(path) else {
+fn index_css_file(path: &Path, css: &str, root: &Path) -> Vec<StyleRuleRef> {
+    let Ok(file) = relative_project_path(path, root) else {
         return Vec::new();
     };
 
@@ -354,37 +352,49 @@ fn index_css_file(path: &Path, css: &str) -> Vec<StyleRuleRef> {
     rules
 }
 
-fn build_style_index_snapshot(version: u64) -> StyleIndexSnapshot {
-    let paths = css_files();
-    let files = style_fingerprint(&paths);
+fn build_style_index_snapshot(project_state: &ProjectState, version: u64) -> StyleIndexSnapshot {
+    let project = project_state.snapshot().ok();
+    let project_version = project.as_ref().map(|value| value.version).unwrap_or(0);
+    let root = project
+        .as_ref()
+        .map(|value| PathBuf::from(&value.root))
+        .unwrap_or_default();
+    let paths = if root.as_os_str().is_empty() { Vec::new() } else { css_files(&root) };
+    let files = style_fingerprint(&paths, &root);
     let mut rules = Vec::new();
 
     for path in paths {
         let Ok(css) = std::fs::read_to_string(&path) else {
             continue;
         };
-        rules.extend(index_css_file(&path, &css));
+        rules.extend(index_css_file(&path, &css, &root));
     }
 
     StyleIndexSnapshot {
         rules,
         files,
         version,
+        project_version,
     }
 }
 
-fn refresh_style_index_if_changed(snapshot: &Arc<RwLock<StyleIndexSnapshot>>) -> Result<bool, String> {
-    let paths = css_files();
-    let files = style_fingerprint(&paths);
+fn refresh_style_index_if_changed(
+    snapshot: &Arc<RwLock<StyleIndexSnapshot>>,
+    project_state: &ProjectState,
+) -> Result<bool, String> {
+    let project = project_state.snapshot()?;
+    let root = PathBuf::from(&project.root);
+    let paths = css_files(&root);
+    let files = style_fingerprint(&paths, &root);
     let current_version = {
         let current = snapshot.read().map_err(|error| error.to_string())?;
-        if current.files == files {
+        if current.project_version == project.version && current.files == files {
             return Ok(false);
         }
         current.version
     };
 
-    let next = build_style_index_snapshot(current_version.saturating_add(1));
+    let next = build_style_index_snapshot(project_state, current_version.saturating_add(1));
     *snapshot.write().map_err(|error| error.to_string())? = next;
     Ok(true)
 }
@@ -705,8 +715,9 @@ async fn canvas_set_style_px(
     value_px: f64,
     history: tauri::State<'_, EditHistory>,
     style_index: tauri::State<'_, StyleIndex>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<CanvasStylePatchResult, String> {
-    let path = safe_project_file(&file)?;
+    let path = safe_project_file(&file, &project_state)?;
     if path.extension().and_then(|extension| extension.to_str()) != Some("css") {
         return Err("deterministic style edits currently require a CSS file".to_string());
     }
@@ -772,8 +783,9 @@ async fn canvas_replace_class_token(
     old_token: String,
     new_token: String,
     history: tauri::State<'_, EditHistory>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<CanvasStylePatchResult, String> {
-    let path = safe_project_file(&file)?;
+    let path = safe_project_file(&file, &project_state)?;
     let extension = path.extension().and_then(|extension| extension.to_str());
     if !matches!(extension, Some("tsx" | "jsx")) {
         return Err("class token edits currently require a TSX or JSX file".to_string());
@@ -825,13 +837,14 @@ async fn canvas_replace_class_token(
 async fn canvas_undo_style(
     history: tauri::State<'_, EditHistory>,
     style_index: tauri::State<'_, StyleIndex>,
+    project_state: tauri::State<'_, ProjectState>,
 ) -> Result<CanvasUndoResult, String> {
     let edit = {
         let mut undo = history.undo.lock().map_err(|error| error.to_string())?;
         undo.pop().ok_or_else(|| "nothing to undo".to_string())?
     };
 
-    let path = safe_project_file(&edit.file)?;
+    let path = safe_project_file(&edit.file, &project_state)?;
     let current = tokio::fs::read_to_string(&path)
         .await
         .map_err(|error| format!("failed to read {}: {error}", path.display()))?;

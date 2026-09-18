@@ -1,4 +1,6 @@
 mod model_core;
+mod project_core;
+mod project_process;
 mod scratch_agent;
 mod scratch_code;
 mod scratch_core;
@@ -14,6 +16,8 @@ mod legacy {
         ModelSettingsSnapshot,
         ModelState,
     };
+    use super::project_core::{ProjectSessionSnapshot, ProjectState};
+    use super::project_process::{ProjectProcessSnapshot, ProjectProcessState};
     use super::scratch_agent::{
         scratch_agent_clear_history as core_scratch_agent_clear_history,
         scratch_agent_history as core_scratch_agent_history,
@@ -46,7 +50,102 @@ mod legacy {
         VisionState,
     };
 
+    use tauri_plugin_dialog::DialogExt;
+
     include!("main.rs");
+
+    fn activate_project(
+        root: String,
+        state: &ProjectState,
+        style_index: &StyleIndex,
+        canvas_state: &CanvasState,
+        history: &EditHistory,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        let snapshot = state.open(root)?;
+        style_index.request_refresh();
+        *canvas_state.selection.lock().map_err(|error| error.to_string())? = None;
+        history.undo.lock().map_err(|error| error.to_string())?.clear();
+        Ok(snapshot)
+    }
+
+    #[tauri::command]
+    fn project_get(
+        state: tauri::State<'_, ProjectState>,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        state.snapshot()
+    }
+
+    #[tauri::command]
+    async fn project_open(
+        root: String,
+        state: tauri::State<'_, ProjectState>,
+        process_state: tauri::State<'_, ProjectProcessState>,
+        style_index: tauri::State<'_, StyleIndex>,
+        canvas_state: tauri::State<'_, CanvasState>,
+        history: tauri::State<'_, EditHistory>,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        process_state.stop().await?;
+        activate_project(root, &state, &style_index, &canvas_state, &history)
+    }
+
+    #[tauri::command]
+    async fn project_pick_folder(
+        app: tauri::AppHandle,
+        state: tauri::State<'_, ProjectState>,
+        process_state: tauri::State<'_, ProjectProcessState>,
+        style_index: tauri::State<'_, StyleIndex>,
+        canvas_state: tauri::State<'_, CanvasState>,
+        history: tauri::State<'_, EditHistory>,
+    ) -> Result<Option<ProjectSessionSnapshot>, String> {
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        app.dialog()
+            .file()
+            .set_title("Open project")
+            .pick_folder(move |folder| {
+                let _ = sender.send(folder);
+            });
+
+        let selected = receiver
+            .await
+            .map_err(|_| "project folder picker closed unexpectedly".to_string())?;
+        let Some(selected) = selected else {
+            return Ok(None);
+        };
+        let path = selected
+            .into_path()
+            .map_err(|error| format!("failed to resolve selected project folder: {error}"))?;
+        process_state.stop().await?;
+        activate_project(
+            path.to_string_lossy().to_string(),
+            &state,
+            &style_index,
+            &canvas_state,
+            &history,
+        )
+        .map(Some)
+    }
+
+    #[tauri::command]
+    async fn project_process_status(
+        state: tauri::State<'_, ProjectProcessState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.snapshot().await
+    }
+
+    #[tauri::command]
+    async fn project_process_start(
+        state: tauri::State<'_, ProjectProcessState>,
+        project_state: tauri::State<'_, ProjectState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.start(&project_state).await
+    }
+
+    #[tauri::command]
+    async fn project_process_stop(
+        state: tauri::State<'_, ProjectProcessState>,
+    ) -> Result<ProjectProcessSnapshot, String> {
+        state.stop().await
+    }
 
     #[tauri::command]
     fn model_settings_get(
@@ -165,15 +264,19 @@ mod legacy {
     }
 
     pub fn run_with_scratch_agent() {
-        let style_index = StyleIndex::start();
+        let project_state = ProjectState::load();
+        let style_index = StyleIndex::start(project_state.clone());
 
         tauri::Builder::default()
             .runtime(tauri_runtime_cef::Cef::default())
+            .plugin(tauri_plugin_dialog::init())
             .manage(CoreStarted(Instant::now()))
             .manage(CanvasState {
                 selection: Mutex::new(None),
             })
             .manage(style_index)
+            .manage(project_state)
+            .manage(ProjectProcessState::new())
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
@@ -196,6 +299,12 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
+                project_get,
+                project_open,
+                project_pick_folder,
+                project_process_status,
+                project_process_start,
+                project_process_stop,
                 model_settings_get,
                 model_settings_save,
                 model_test_connection,
