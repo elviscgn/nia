@@ -45,6 +45,12 @@ type ScratchUpdatedDetail = {
   version: number;
 };
 
+const EDITABLE_PROPERTIES = [
+  { property: "font-size", key: "fontSize", label: "Font size", step: 4 },
+  { property: "gap", key: "gap", label: "Gap", step: 4 },
+  { property: "border-radius", key: "borderRadius", label: "Radius", step: 4 },
+] as const;
+
 export default function App({ agentPanel, modelLabel, onOpenModelSettings }: AppProps) {
   const [health, setHealth] = useState<CoreHealth | null>(null);
   const [latency, setLatency] = useState<number | null>(null);
@@ -61,6 +67,7 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
   const [lastPatch, setLastPatch] = useState<ScratchStylePatchResult | null>(null);
   const [lastPatchMs, setLastPatchMs] = useState<number | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const autoInspected = useRef(false);
 
@@ -261,14 +268,13 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
     }
   }
 
-  const hasNumericStyle = (key: string) =>
-    Number.isFinite(Number.parseFloat(selection?.styles[key] ?? ""));
+  const selectedName = selection
+    ? `${selection.tag}${selection.id ? `#${selection.id}` : ""}${selection.classes.map((name) => `.${name}`).join("")}`
+    : "Nothing selected";
 
-  const ownerLabel = (property: string) => {
-    const target = selection?.styleTargets?.[property];
-    if (!target) return null;
-    return `${property} -> ${target.selector} · ${target.file}`;
-  };
+  const sourceLabel = selection?.source
+    ? `${selection.source.file}:${selection.source.line}:${selection.source.column}`
+    : "scratch/index.html";
 
   return (
     <main className="app">
@@ -318,9 +324,9 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
           {agentPanel}
         </aside>
 
-        <section className="center">
+        <section className={`center ${terminalOpen ? "terminalOpen" : "terminalClosed"}`}>
           <div className="canvasToolbar">
-            <span>
+            <span className="modeSwitch">
               <button disabled={!canvasVisible || Boolean(liveProjectUrl)} className={canvasVisible && !liveProjectUrl && canvasMode === "inspect" ? "active" : ""} onClick={() => switchCanvasMode("inspect")}>Inspect</button>
               <button disabled={!canvasVisible || Boolean(liveProjectUrl)} className={canvasVisible && !liveProjectUrl && canvasMode === "interact" ? "active" : ""} onClick={() => switchCanvasMode("interact")}>Interact</button>
             </span>
@@ -372,15 +378,19 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
           </div>
 
           <div className="terminal">
-            <div className="terminalTabs">Terminal &nbsp;&nbsp; Problems &nbsp;&nbsp; Console &nbsp;&nbsp; Network &nbsp;&nbsp; Tests</div>
-            <pre>
-              {project ? `project › ${project.root}\n` : ""}
-              {projectProcess?.command ? `process › ${projectProcess.command}\n` : project?.devCommand ? `run › ${project.devCommand}\n` : ""}
-              {projectProcess?.logs?.length ? `${projectProcess.logs.slice(-8).join("\n")}\n` : ""}
-              {liveProjectUrl ? `canvas › ${liveProjectUrl}\n` : "scratch › raw HTML/CSS/JS canvas\n"}
-              nia › Rust core online · undo {scratchUndoDepth}
-              {projectError ? `\nproject error › ${projectError}` : ""}
-            </pre>
+            <button className="terminalTabs" onClick={() => setTerminalOpen((open) => !open)}>
+              <span>Terminal</span><span>Problems</span><span>Console</span><span>Network</span><span>Tests</span><b>{terminalOpen ? "⌄" : "⌃"}</b>
+            </button>
+            {terminalOpen ? (
+              <pre>
+                {project ? `project › ${project.root}\n` : ""}
+                {projectProcess?.command ? `process › ${projectProcess.command}\n` : project?.devCommand ? `run › ${project.devCommand}\n` : ""}
+                {projectProcess?.logs?.length ? `${projectProcess.logs.slice(-8).join("\n")}\n` : ""}
+                {liveProjectUrl ? `canvas › ${liveProjectUrl}\n` : "scratch › raw HTML/CSS/JS canvas\n"}
+                nia › Rust core online · undo {scratchUndoDepth}
+                {projectError ? `\nproject error › ${projectError}` : ""}
+              </pre>
+            ) : null}
           </div>
         </section>
 
@@ -388,37 +398,71 @@ export default function App({ agentPanel, modelLabel, onOpenModelSettings }: App
           <div className="tabs"><b>Inspect</b><span>DOM</span><span>Page</span></div>
           {selection ? (
             <div className="selectionLive">
-              <small>SELECTED · SCRATCH</small>
-              <strong>{selection.tag}{selection.id ? `#${selection.id}` : ""}{selection.classes.map((name) => `.${name}`).join("")}</strong>
-              <div className="sourceRef">
-                <b>Source</b>
-                <code>scratch/index.html</code>
-                <span>{selection.styleTargets && Object.keys(selection.styleTargets).length ? "Live CSS ownership resolved" : "DOM selection live"}</span>
-                <div className="sourceActions">
-                  <button disabled={!hasNumericStyle("fontSize")} onClick={() => void changeNumericStyle("font-size", "fontSize", -4)}>Font -4</button>
-                  <button disabled={!hasNumericStyle("fontSize")} onClick={() => void changeNumericStyle("font-size", "fontSize", 4)}>Font +4</button>
-                  <button disabled={!hasNumericStyle("gap")} onClick={() => void changeNumericStyle("gap", "gap", -4)}>Gap -4</button>
-                  <button disabled={!hasNumericStyle("gap")} onClick={() => void changeNumericStyle("gap", "gap", 4)}>Gap +4</button>
-                  <button disabled={!hasNumericStyle("borderRadius")} onClick={() => void changeNumericStyle("border-radius", "borderRadius", -4)}>Radius -4</button>
-                  <button disabled={!hasNumericStyle("borderRadius")} onClick={() => void changeNumericStyle("border-radius", "borderRadius", 4)}>Radius +4</button>
-                  <button disabled={scratchUndoDepth === 0} onClick={() => void undoLastStyleEdit()}>Undo {scratchUndoDepth ? `(${scratchUndoDepth})` : ""}</button>
-                </div>
-                <div className="styleOwners">
-                  {["font-size", "gap", "border-radius"].map((property) => {
-                    const label = ownerLabel(property);
-                    return label ? <small key={property}>{label}</small> : null;
+              <div className="selectionHeader">
+                <div><small>SELECTED · SCRATCH</small><strong>{selectedName}</strong></div>
+                <button disabled={scratchUndoDepth === 0} onClick={() => void undoLastStyleEdit()}>Undo{scratchUndoDepth ? ` ${scratchUndoDepth}` : ""}</button>
+              </div>
+
+              <section className="inspectorBlock sourceBlock">
+                <div className="sectionTitle"><b>Source</b><code>{sourceLabel}</code></div>
+                {selection.source?.classValue ? <div className="sourceMeta"><span>className</span><code>"{selection.source.classValue}"</code></div> : null}
+                <div className="sourceMeta"><span>selector</span><code>{selection.selector}</code></div>
+              </section>
+
+              <section className="inspectorBlock">
+                <div className="sectionTitle"><b>Properties</b><span>{selection.rect.width.toFixed(0)} × {selection.rect.height.toFixed(0)}</span></div>
+                <div className="propertyRows">
+                  {EDITABLE_PROPERTIES.map(({ property, key, label, step }) => {
+                    const numericValue = Number.parseFloat(selection.styles[key] ?? "");
+                    const available = Number.isFinite(numericValue);
+                    const owner = selection.styleTargets?.[property];
+                    return (
+                      <div className="propertyRow" key={property}>
+                        <div className="propertyIdentity">
+                          <span>{label}</span>
+                          <small>{owner ? owner.selector : "computed"}</small>
+                        </div>
+                        <div className="stepper">
+                          <button disabled={!available} onClick={() => void changeNumericStyle(property, key, -step)}>−</button>
+                          <code>{available ? `${numericValue}px` : "auto"}</code>
+                          <button disabled={!available} onClick={() => void changeNumericStyle(property, key, step)}>+</button>
+                        </div>
+                      </div>
+                    );
                   })}
                 </div>
-                {lastPatch ? <small className="patchStatus">wrote {lastPatch.property}: {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</small> : null}
-                {editError ? <small className="patchStatus">edit error: {editError}</small> : null}
-              </div>
-              <div className="kv"><span>box</span><span>{selection.rect.x.toFixed(0)}, {selection.rect.y.toFixed(0)} · {selection.rect.width.toFixed(0)} × {selection.rect.height.toFixed(0)}</span></div>
-              <div className="kv"><span>text</span><span>{selection.text || "-"}</span></div>
-              <section><b>DOM path</b><ol>{selection.path.map((part, index) => <li key={`${part}-${index}`}>{part}</li>)}</ol></section>
-              <section><b>Computed</b>{Object.entries(selection.styles).map(([key, value]) => <p key={key}>{key} &nbsp; {value}</p>)}</section>
+                {lastPatch ? <div className="patchStatus">Saved {lastPatch.property} {lastPatch.value}{lastPatchMs === null ? "" : ` · ${lastPatchMs.toFixed(1)} ms`}</div> : null}
+                {editError ? <div className="patchStatus">Edit error: {editError}</div> : null}
+              </section>
+
+              <section className="inspectorBlock compactBlock">
+                <div className="sectionTitle"><b>Element</b></div>
+                <div className="metaGrid">
+                  <span>Position</span><code>{selection.rect.x.toFixed(0)}, {selection.rect.y.toFixed(0)}</code>
+                  <span>Text</span><code>{selection.text || "-"}</code>
+                </div>
+              </section>
+
+              <details className="debugDetails">
+                <summary>DOM path</summary>
+                <ol>{selection.path.map((part, index) => <li key={`${part}-${index}`}>{part}</li>)}</ol>
+              </details>
+
+              <details className="debugDetails">
+                <summary>Computed styles</summary>
+                <div className="computedGrid">
+                  {Object.entries(selection.styles).map(([key, value]) => (
+                    <span className="computedPair" key={key}><span>{key}</span><code>{value}</code></span>
+                  ))}
+                </div>
+              </details>
             </div>
           ) : (
-            <div className="selection"><small>SELECTED</small><strong>Nothing yet</strong><span>Click an element in the canvas...</span></div>
+            <div className="emptyInspector">
+              <span>Inspect mode</span>
+              <strong>Click anything on the canvas</strong>
+              <p>Nia will resolve the DOM node, source identity, and editable style owner.</p>
+            </div>
           )}
           <div className="perf">
             <div><span>Rust IPC</span><strong>{latency === null ? "-" : `${latency.toFixed(2)} ms`}</strong></div>
