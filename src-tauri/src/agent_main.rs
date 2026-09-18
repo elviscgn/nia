@@ -1,4 +1,5 @@
 mod model_core;
+mod project_core;
 mod scratch_agent;
 mod scratch_code;
 mod scratch_core;
@@ -14,6 +15,7 @@ mod legacy {
         ModelSettingsSnapshot,
         ModelState,
     };
+    use super::project_core::{ProjectSessionSnapshot, ProjectState};
     use super::scratch_agent::{
         scratch_agent_clear_history as core_scratch_agent_clear_history,
         scratch_agent_history as core_scratch_agent_history,
@@ -47,6 +49,28 @@ mod legacy {
     };
 
     include!("main.rs");
+
+    #[tauri::command]
+    fn project_get(
+        state: tauri::State<'_, ProjectState>,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        state.snapshot()
+    }
+
+    #[tauri::command]
+    fn project_open(
+        root: String,
+        state: tauri::State<'_, ProjectState>,
+        style_index: tauri::State<'_, StyleIndex>,
+        canvas_state: tauri::State<'_, CanvasState>,
+        history: tauri::State<'_, EditHistory>,
+    ) -> Result<ProjectSessionSnapshot, String> {
+        let snapshot = state.open(root)?;
+        style_index.request_refresh();
+        *canvas_state.selection.lock().map_err(|error| error.to_string())? = None;
+        history.undo.lock().map_err(|error| error.to_string())?.clear();
+        Ok(snapshot)
+    }
 
     #[tauri::command]
     fn model_settings_get(
@@ -165,7 +189,8 @@ mod legacy {
     }
 
     pub fn run_with_scratch_agent() {
-        let style_index = StyleIndex::start();
+        let project_state = ProjectState::load();
+        let style_index = StyleIndex::start(project_state.clone());
 
         tauri::Builder::default()
             .runtime(tauri_runtime_cef::Cef::default())
@@ -174,6 +199,7 @@ mod legacy {
                 selection: Mutex::new(None),
             })
             .manage(style_index)
+            .manage(project_state)
             .manage(EditHistory {
                 undo: Mutex::new(Vec::new()),
             })
@@ -196,6 +222,8 @@ mod legacy {
                 canvas_replace_class_token,
                 canvas_undo_style,
                 canvas_cdp_evaluate,
+                project_get,
+                project_open,
                 model_settings_get,
                 model_settings_save,
                 model_test_connection,
